@@ -76,7 +76,7 @@ M1 是第一可用切片；M2、M3 仍属于首版范围，但不要求在同一
 - macOS 13 Ventura 或更高版本在同一代码库上通过平台适配器实现，完成首版前必须通过验收。
 - macOS 首版允许输出未签名的 `.dmg` 或 `.zip` 测试包；用户需要手动通过 Gatekeeper 放行。
 
-Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，macOS 默认 `Alt+Space`（Electron 在 macOS 上映射为 Option）。如果系统或其他程序占用该组合，注册失败并进入首次设置引导；不自动静默替换组合。全局快捷键通常不要求额外系统权限；若系统拒绝窗口激活，设置页显示平台权限检查和重试入口。
+Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，macOS 默认 `Option+Space`。如果系统或其他程序占用该组合，注册失败并进入首次设置引导；不自动静默替换组合。全局快捷键通常不要求额外系统权限；若系统拒绝窗口激活，设置页显示平台权限检查和重试入口。
 
 ### 3.3 发布范围
 
@@ -96,7 +96,7 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 
 ### 4.2 搜索窗口
 
-- 窗口在当前鼠标所在显示器的工作区水平居中，距离工作区顶部 18% 高度处显示；窗口宽度为工作区宽度的 42%，限制在 560--820 px，高度由结果数量决定但不超过工作区高度的 55%。
+- 窗口在当前鼠标所在显示器的工作区水平居中，距离工作区顶部 18% 高度处显示；窗口宽度为工作区宽度的 42%，限制在 560--820 px，高度由结果数量决定但不超过工作区高度的 55%。M1 不提供用户调整宽度的设置，宽度不持久化；每次显示都按当前工作区重新计算。
 - 窗口无边框，显示时临时置顶，隐藏时解除置顶。
 - 窗口在应用启动时预创建并保持隐藏，快捷键触发时不重新创建 Renderer。
 - 每次重新打开默认清空上一次输入。
@@ -142,7 +142,7 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 - 支持中文应用名、拼音全拼和拼音首字母。
 - 快捷词只能由 1--32 个 Unicode 字母、数字、汉字、连字符或下划线组成，不包含空白。
 - 用户快捷词在“规范化后”的全局命令命名空间中唯一；应用命令、固定网址和参数命令不能共享同一个快捷词。
-- 首版不实现引号、反斜杠转义或多参数语法。参数命令用 normalizedInput 识别第一个 token，但在 rawInput 中找到该 token 后的第一个 Unicode 空白边界；参数只去除首尾空白，内部空白保持原样。控制字符被拒绝，参数最长 512 个 Unicode 字符。
+- 首版不实现引号、反斜杠转义或多参数语法。参数命令先在 `rawInput` 去除首尾 Unicode 空白，再按 Unicode `White_Space` 边界切出原始首 token；仅对该 token 做 NFKC 和 Unicode 小写折叠后与快捷词比较，不尝试把规范化 token 反查回原文。参数直接取原始首 token 之后的文本，只去除首尾空白，内部空白保持原样。控制字符被拒绝，参数最长 512 个 Unicode 字符。普通搜索输入最长 512 个 Unicode 字符；超过限制时不发起查询并显示不可执行提示。
 
 ### 5.2 命令类型
 
@@ -165,7 +165,7 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 
 命令解析遵循确定性决策：
 
-1. 取规范化输入的第一个 token。
+1. 从 `rawInput` 切出首 token，并对该 token 单独执行 NFKC 和 Unicode 小写折叠。
 2. 如果该 token 精确匹配一个已启用 `web_search` 快捷词，且分隔空白后的剩余参数非空，则进入参数命令模式。
 3. 如果该 token 精确匹配参数命令但剩余参数为空（包括输入只有 `llq` 或只有空白），返回一个 `hint` 行。
 4. 否则整个输入按普通搜索处理；参数命令前缀不参与模糊匹配。
@@ -211,7 +211,7 @@ type SearchItem =
   | { kind: 'action'; status: 'ready'; execution: ExecuteRequest; title: string; subtitle: string; iconRef?: string; executable: true }
   | { kind: 'action'; status: 'unavailable'; actionId: string; title: string; subtitle: string; iconRef?: string; executable: false; errorCode: 'APP_NOT_FOUND' | 'APP_TARGET_INVALID' }
   | { kind: 'web-fallback'; query: string; title: string; executable: true }
-  | { kind: 'hint'; code: 'missing-argument' | 'empty-state'; title: string; executable: false }
+  | { kind: 'hint'; code: 'missing-argument' | 'empty-state' | 'input-too-long'; title: string; executable: false }
 
 type ExecuteRequest =
   | { actionId: string; argument: null }
@@ -257,6 +257,8 @@ Worker 异常退出时由 `SearchWorkerSupervisor` 创建新 Worker，清空待�
 | `weixn`，无快捷词 | 微信 fuzzy action；网页 fallback |
 | `llq` | `hint(missing-argument)`；无网页 fallback |
 | `llq   抖音` | web-search action（参数为“抖音”）；无其他结果 |
+| `LLQ   抖音  直播` | web-search action（原始参数为“抖音  直播”）；无其他结果 |
+| `ｌｌｑ　抖音`（全角 token 与全角空格） | web-search action（原始参数为“抖音”）；无其他结果 |
 | `cursor` 同时是用户 keyword 和应用名 | 用户 keyword action；应用名 action 作为下一匹配等级 |
 
 “最近使用”只统计 `launch_app` 成功执行且次数大于 0 的条目，按最近时间降序、稳定 ID 升序；没有历史时只显示已启用的 `launch_app` 命令，按 keyword、显示名、稳定 ID 升序。
@@ -270,7 +272,7 @@ Worker 异常退出时由 `SearchWorkerSupervisor` 创建新 Worker，清空待�
 | SettingsStore | `settings.json` | `settings.json`、快捷键/自启协调 | 设置快照 |
 | ConfigStore | `user.json` | `user.json` 事务 | 带 configVersion 的用户配置 |
 | UsageStore | `usage.json` | `usage.json` | 使用历史快照 |
-| ApplicationIndexer | 平台来源、`app-index.json` | `app-index.json`、目录监听 | 应用快照 |
+| ApplicationIndexer | 平台来源、`app-index.json`、`user.json.appBindings` 快照 | `app-index.json`、目录监听 | 应用快照 |
 | ApplicationBindingService | appRef、系统选择结果 | 通过 ConfigStore 写 `user.json.appBindings` | 已验证用户绑定 |
 | CommandRegistry | base、用户配置、应用/历史快照 | 无文件写入 | SearchSnapshot |
 | PackageImporter | opaque import token、Schema | 无直接文件写入 | ConfigStore patch/预览 |
@@ -295,12 +297,17 @@ CommandRegistry 是纯合并层，PackageImporter 是纯校验/变更集生成�
 规范接口：
 
 ```ts
-register(accelerator: string): HotkeyRegistrationResult
-replace(previous: string, next: string): HotkeyRegistrationResult
-unregisterAll(): void
+interface PreparedHotkeyChange {
+  commit(): Promise<void>
+  rollback(): Promise<void>
+}
+
+register(accelerator: string): Promise<HotkeyRegistrationResult>
+prepareReplace(previous: string, next: string): Promise<PreparedHotkeyChange | HotkeyRegistrationFailure>
+unregisterAll(): Promise<void>
 ```
 
-`replace` 使用双阶段交换：先尝试注册 `next`，成功后再注销 `previous`；如果 `next` 失败，保留 `previous` 的注册和持久化值不变。退出或系统注销时统一注销当前有效组合。
+`prepareReplace` 使用双阶段交换：先注册 `next`，此时保留 `previous`；SettingsStore 成功原子保存新设置后调用 `commit()` 注销 `previous`，保存失败则调用 `rollback()` 注销 `next`。如果 `next` 注册失败，旧注册和持久化值均不变。退出或系统注销时统一注销当前有效组合。
 
 #### WindowController
 
@@ -397,26 +404,76 @@ interface LaunchTarget {
 - 使用配置的搜索模板生成并打开网页搜索网址。
 - 记录成功启动的使用次数与最近时间。
 
-Renderer 不得提交任意可执行路径或任意系统命令。它只能请求执行 CommandRegistry 已注册的动作 ID 和已验证参数。执行错误使用固定枚举：`APP_NOT_FOUND`、`APP_TARGET_INVALID`、`APP_LAUNCH_FAILED`、`APP_LAUNCH_TIMEOUT`、`BROWSER_OPEN_FAILED`、`INVALID_ACTION`；动作参数最长 512 个 Unicode 字符，应用启动超时为 3 秒。
+Renderer 不得提交任意可执行路径、任意系统命令或最终 URL。它只能请求执行 CommandRegistry 已注册的动作 ID 和已验证参数。执行错误使用固定枚举：`APP_NOT_FOUND`、`APP_TARGET_INVALID`、`APP_LAUNCH_FAILED`、`APP_LAUNCH_TIMEOUT`、`BROWSER_OPEN_FAILED`、`URL_REJECTED`、`INVALID_ACTION`；动作参数最长 512 个 Unicode 字符，应用启动超时为 3 秒。
+
+```ts
+interface GeneratedUrlToken {
+  token: string
+  expiresAt: string
+}
+
+type ActionExecutionResult =
+  | { ok: true; code: 'APP_LAUNCHED' | 'BROWSER_OPENED' }
+  | { ok: false; code: 'BROWSER_OPEN_FAILED'; copyToken: GeneratedUrlToken }
+  | { ok: false; code: 'APP_NOT_FOUND' | 'APP_TARGET_INVALID' | 'APP_LAUNCH_FAILED' | 'APP_LAUNCH_TIMEOUT' | 'INVALID_ACTION' | 'URL_REJECTED' }
+```
+
+ActionService 只有在动作和查询均验证通过、最终 HTTP/HTTPS URL 已生成后，才把 URL 存入主进程内存中的 GeneratedUrlRegistry。registry 返回至少 128 bit 随机 token，绑定发起 `webContents.id`，5 分钟过期且只允许一次复制尝试；Renderer 只能收到 token 和过期时间。浏览器打开失败时返回 `copyToken`，随后 `copyGeneratedUrl(token)` 验证窗口、过期和消费状态，再由 ClipboardAdapter 将 registry 内部 URL 写入剪贴板。复制尝试结束、token 过期或窗口销毁时，registry 都删除该 URL；日志不得记录 URL 或 token。
 
 #### SettingsStore
 
 职责：
 
 - 读取、验证、迁移和原子保存设置。
-- 管理快捷键、开机自启、搜索引擎和窗口偏好，唯一写入 `settings.json`。
+- 管理快捷键、开机自启和搜索引擎，唯一写入 `settings.json`。
 - 写入前创建 `settings.json.bak`，并负责 Schema 迁移和恢复。
+
+快捷键更新使用 HotkeyManager 的 prepared change：准备新注册 → 原子保存设置 → 提交注销旧注册；保存失败时回滚新注册。开机自启更新保存旧值，先调用 AutostartAdapter 设置新值，再原子保存设置；保存失败时立即调用适配器恢复旧值。任何回滚或补偿失败返回 `SETTINGS_SIDE_EFFECT_INCONSISTENT`，保留托盘和设置页可用，明确显示当前运行状态与持久化状态可能不一致，并提供“重新应用已保存设置”操作；不得静默报告成功。
 
 #### ConfigStore
 
 `ConfigStore` 是用户命令配置的唯一持久化 owner。它独占 `user.json` 的读取、迁移、事务写入、备份和恢复；`PackageImporter`、CommandRegistry 和设置 UI 不得直接写文件。
 
+```ts
+type ConfigCommitResult =
+  | { ok: true; configVersion: number }
+  | { ok: false; code: 'CONFIG_CONFLICT' | 'KEYWORD_CONFLICT' | 'WRITE_FAILED' }
+
+interface ConfigCommitRequest {
+  expectedConfigVersion: number
+  patch: UserConfigPatch // 主进程内已通过 Schema 校验的内部 DTO
+}
+
+type ImportCommitResult = ConfigCommitResult | {
+  ok: false
+  code: 'PREVIEW_EXPIRED' | 'PREVIEW_REPLAYED' | 'PACKAGE_CHANGED' | 'PACKAGE_VERSION_COLLISION' | 'DANGLING_APP_REF'
+}
+
+type ImportSessionError = Extract<ImportCommitResult, { ok: false }>
+
+interface ImportCommitTransaction {
+  commit(): Promise<ImportCommitResult>
+  rollback(): Promise<void>
+}
+
+interface ConfigStore {
+  commit(request: ConfigCommitRequest): Promise<ConfigCommitResult>
+  beginImportCommit(request: {
+    previewId: string
+    packageDigest: string
+    expectedConfigVersion: number
+    decisions: ImportDecision[]
+  }): Promise<ImportCommitTransaction | ImportSessionError>
+}
+```
+
 - 写入目标：`user.json` 与 `user.json.bak`。
-- 事务接口：`beginImportCommit(previewId, packageDigest, expectedConfigVersion, patch)`、`commit()`、`rollback()`。
+- `commit()` 是命令 CRUD、应用绑定和导入最终写入共用的唯一 compare-and-swap 原语。
+- `beginImportCommit()` 是导入会话包装层：它只接受仍在 5 分钟有效期内、绑定发起窗口的 preview session，重新取得 session 中的文件身份、digest、规范化内容和生成时配置版本，校验 decisions 后在主进程内生成 `UserConfigPatch`；其 transaction `commit()` 必须委托给同一个 CAS 原语，不得形成第二条文件写入路径。
 - 同一时刻只允许一个写事务；后到的导入请求排队或失败并提示重试。
 - 用户命令删除通过 `disabledCommandIds` tombstone 表示，避免内置 `base.json` 更新后重新出现。
 
-`beginImportCommit` 只接受仍在 5 分钟有效期内、绑定发起窗口的 preview session；session 包含 `previewId`、文件 digest、规范化 patch 和生成时的 `expectedConfigVersion`。`commit()` 只可消费一次，提交时复检当前文件身份/digest、配置版本和 keyword 唯一性；任何不匹配返回 `PREVIEW_EXPIRED`、`PREVIEW_REPLAYED`、`PACKAGE_CHANGED` 或 `CONFIG_CONFLICT`，不写入文件。超时、崩溃或取消自动 rollback。
+Import transaction 只可提交一次；提交时复检当前文件身份/digest、配置版本、keyword 唯一性及全部 `appRef`。任何不匹配返回上面的固定错误码且不写入文件。成功、失败、超时、崩溃或取消都会使 preview session 不可再次提交并执行 rollback 清理。
 
 #### UsageStore
 
@@ -424,7 +481,7 @@ Renderer 不得提交任意可执行路径或任意系统命令。它只能请�
 
 #### AutostartAdapter
 
-平台适配器只接收布尔值并返回明确错误码：`AUTOSTART_ENABLED`、`AUTOSTART_DISABLED`、`AUTOSTART_PERMISSION_DENIED`。SettingsStore 只有在适配器成功后才保存新状态。
+平台适配器只接收布尔值并返回明确错误码：`AUTOSTART_ENABLED`、`AUTOSTART_DISABLED`、`AUTOSTART_RETRY`、`AUTOSTART_PERMISSION_DENIED`。SettingsStore 只有在适配器成功后才尝试保存新状态；文件保存失败时按上面的补偿协议恢复旧系统值。
 
 平台能力统一错误码：
 
@@ -435,6 +492,7 @@ Renderer 不得提交任意可执行路径或任意系统命令。它只能请�
 | LaunchTarget | `LAUNCHED` | `APP_NOT_FOUND`、`APP_LAUNCH_TIMEOUT` | `APP_TARGET_INVALID`、`APP_LAUNCH_FAILED` |
 | AutostartAdapter | `AUTOSTART_ENABLED`、`AUTOSTART_DISABLED` | `AUTOSTART_RETRY` | `AUTOSTART_PERMISSION_DENIED` |
 | BrowserAdapter | `BROWSER_OPENED` | `BROWSER_OPEN_FAILED` | `URL_REJECTED` |
+| ClipboardAdapter | `COPIED` | `COPY_FAILED` | `CLIPBOARD_UNAVAILABLE` |
 
 平台适配器必须有可注入的 fake 实现，单元和集成测试不得依赖真实注册表、LaunchServices、默认浏览器或登录项。
 
@@ -452,7 +510,10 @@ interface AutostartAdapter {
 
 interface BrowserAdapter {
   open(url: string): Promise<{ code: 'BROWSER_OPENED' | 'BROWSER_OPEN_FAILED' | 'URL_REJECTED' }>
-  copy(url: string): Promise<{ code: 'COPIED' | 'COPY_FAILED' }>
+}
+
+interface ClipboardAdapter {
+  copyText(text: string): Promise<{ code: 'COPIED' | 'COPY_FAILED' | 'CLIPBOARD_UNAVAILABLE' }>
 }
 
 interface WindowPlatformAdapter {
@@ -461,7 +522,7 @@ interface WindowPlatformAdapter {
 }
 ```
 
-Window bounds使用 §4.2 公式计算；fake adapter 固定返回 work area、注册冲突、权限失败和浏览器失败，用于契约测试。
+BrowserAdapter 和 ClipboardAdapter 的 raw URL/text 参数只存在于主进程内部；Preload 不直接暴露这些接口。Window bounds 使用 §4.2 公式计算；fake adapter 固定返回 work area、注册冲突、权限失败、浏览器失败和剪贴板失败，用于契约测试。
 
 ### 6.2 SearchWorker
 
@@ -516,6 +577,7 @@ Preload 暴露小而稳定的白名单接口，例如：
 launcher.search(query)
 launcher.execute(request: ExecuteRequest)
 launcher.executeWebFallback(request: { query: string })
+launcher.copyGeneratedUrl(token)
 launcher.getSettings()
 launcher.updateSettings(patch)
 launcher.getCommands()
@@ -526,7 +588,7 @@ launcher.deleteCommand(commandId, expectedConfigVersion)
 launcher.chooseImportFile()
 launcher.createImportTokenFromDrop(droppedFileHandle)
 launcher.previewImport(importToken)
-launcher.commitImport(previewId, decisions, expectedConfigVersion)
+launcher.commitImport({ previewId, packageDigest, decisions, expectedConfigVersion })
 launcher.chooseApplicationTarget(appRef)
 launcher.revealAction(actionId)
 launcher.refreshApplications()
@@ -632,16 +694,50 @@ interface AppTemplate {
 }
 ```
 
-`commands` 中的用户命令完全覆盖同 ID 的基础模板；`disabledCommandIds` 是删除/禁用基础命令的 tombstone。ConfigStore 对所有命令 CRUD 和导入统一使用 `commit(expectedConfigVersion, patch)` 比较并交换；版本不匹配返回 `CONFIG_CONFLICT`，调用方重新加载并让用户重试。成功写入时递增 `configVersion`，采用“写临时文件 → 刷新 → 原子替换”，保留上次有效备份，然后由 CommandRegistry 生成新的 `snapshotVersion`。
+`commands` 中的用户命令完全覆盖同 ID 的基础模板；`disabledCommandIds` 是删除/禁用基础命令的 tombstone。命令 CRUD 和应用绑定调用 `ConfigStore.commit({expectedConfigVersion, patch})`；导入通过 `beginImportCommit()` 校验会话并生成 patch，最终委托同一个 CAS 写入原语。版本不匹配返回 `CONFIG_CONFLICT`，调用方重新加载并让用户重试。成功写入时递增 `configVersion`，采用“写临时文件 → 刷新 → 原子替换”，保留上次有效备份，然后由 CommandRegistry 生成新的 `snapshotVersion`。
 
-命令 Schema：`commands` 是数组，最多 1,000 项；每项必须符合 §7.5 的 `QuickCommand`，并额外保存 `{source: {kind: 'base' | 'user' | 'package'; packageId?: string; packageVersion?: string}}`，未知字段拒绝。`enabledBaseAppIds` 和 `disabledCommandIds` 是唯一字符串数组。`appBindings` 的 key 是 `appRef`，value 必须符合下面的 `AppBinding` 联合；本地路径只存在于主进程配置，不直接暴露给 Renderer。`importedPackages` 的 key 是 `packageId`，value 为 `{version: string; importedAt: string; apps: AppTemplate[]; commands: QuickCommand[]; digest: string}`，保存规范化包快照。数组不允许重复值，所有时间使用 ISO 8601 UTC。基础模板、用户命令和包快照合并后再做一次全局 keyword 唯一性校验；冲突会让提交失败并返回 `KEYWORD_CONFLICT`。
+命令 Schema：`commands` 是数组，最多 1,000 项；每项必须符合下面的严格 `StoredCommand` 判别联合，未知字段拒绝。`enabledBaseAppIds` 和 `disabledCommandIds` 是唯一字符串数组。`appBindings` 的 key 是 `appRef`，value 必须符合下面的 `AppBinding` 联合；本地路径只存在于主进程配置，不直接暴露给 Renderer。`importedPackages` 的 key 是 `packageId`，value 为 `{version: string; importedAt: string; apps: AppTemplate[]; commands: QuickCommand[]; digest: string}`，保存规范化包快照。数组不允许重复值，所有时间使用 ISO 8601 UTC。基础模板、用户命令和包快照合并后再做一次全局 keyword 唯一性校验；冲突会让提交失败并返回 `KEYWORD_CONFLICT`。
 
 ```ts
+type StoredCommand = QuickCommand & {
+  source:
+    | { kind: 'base' }
+    | { kind: 'user' }
+    | { kind: 'package'; packageId: string; packageVersion: string }
+}
+
 type AppBinding =
   | { platform: 'windows'; target: { kind: 'windows-shortcut'; path: string; targetHash: string }; verifiedAt: string }
   | { platform: 'windows'; target: { kind: 'windows-executable'; path: string; fileIdentity: string }; verifiedAt: string }
   | { platform: 'macos'; target: { kind: 'macos-bundle'; bundleId: string; bundleUrl: string }; verifiedAt: string }
+
+interface ImportedPackageSnapshot {
+  version: string
+  importedAt: string
+  apps: AppTemplate[]
+  commands: QuickCommand[]
+  digest: string
+}
+
+interface UserConfigPatch {
+  commandUpserts?: StoredCommand[]
+  commandDeletes?: string[]
+  enabledBaseAppIds?: string[]
+  disabledCommandIds?: string[]
+  appBindingUpserts?: Record<string, AppBinding>
+  appBindingDeletes?: string[]
+  importedPackageUpserts?: Record<string, ImportedPackageSnapshot>
+}
+
+type ImportDecision =
+  | { kind: 'replace-command'; incomingId: string }
+  | { kind: 'rename-command'; incomingId: string; keyword: string }
+  | { kind: 'skip-command'; incomingId: string }
+  | { kind: 'delete-dependent-command'; commandId: string }
+  | { kind: 'remap-app-ref'; commandId: string; appRef: string }
 ```
+
+`UserConfigPatch` 至少包含一个非空操作，所有 ID 必须存在于当前配置或本次预览中，数组去重且同一 ID 不得同时 upsert/delete。ConfigStore 在 CAS 前把 patch 应用到内存副本并对完整下一状态重新做 Schema、来源联合、keyword 和 `appRef` 校验；Renderer 不能直接构造该内部 DTO。
 
 手动选择的 `.exe` 始终规范化为 `windows-executable`；App Paths 只由系统扫描产生，不由用户绑定创建。
 
@@ -655,12 +751,11 @@ type AppBinding =
   "onboardingCompleted": false,
   "hotkey": { "accelerator": "Alt+Space" },
   "autostart": false,
-  "searchEngine": { "kind": "bing" },
-  "window": { "width": 680 }
+  "searchEngine": { "kind": "bing" }
 }
 ```
 
-`searchEngine` 是 `{kind: 'bing' | 'baidu' | 'google'}` 或 `{kind: 'custom'; template: string}` 的判别联合；custom template 遵循 §9。`window.width` 为 560--820 的整数。hotkey accelerator 为 1--64 字符并必须先通过 HotkeyAdapter 验证。未知字段拒绝，文件最大 64 KiB、JSON 深度最大 6；缺失字段使用明确默认值。`schemaVersion` 只允许 1，未来迁移必须以纯函数将旧对象转换为新对象并先写备份；新于支持版本时保留文件并进入只读恢复页。`settings.json` 不保存命令、应用路径或使用历史。
+`searchEngine` 是 `{kind: 'bing' | 'baidu' | 'google'}` 或 `{kind: 'custom'; template: string}` 的判别联合；custom template 遵循 §9。hotkey accelerator 为 1--64 字符并必须先通过 HotkeyAdapter 验证。未知字段拒绝，文件最大 64 KiB、JSON 深度最大 6；缺失字段使用明确默认值。`schemaVersion` 只允许 1，未来迁移必须以纯函数将旧对象转换为新对象并先写备份；新于支持版本时保留文件并进入只读恢复页。`settings.json` 不保存窗口尺寸、命令、应用路径或使用历史。
 
 ### 7.3 usage.json
 
@@ -744,7 +839,11 @@ type QuickCommand =
 
 约束：`id` 为 1--96 个 ASCII 字母、数字、`.`、`_` 或 `-`，包内唯一；`keyword` 遵循 §5.1；`url` 必须是 HTTP/HTTPS 且不含控制字符；`template` 必须是 HTTP/HTTPS 且恰好包含一个 `{query}`；包名、版本和 `packageId` 必填，版本使用 SemVer；Schema 版本只接受 `1`。所有对象等价于 JSON Schema 的 `additionalProperties: false`。未知字段、重复 ID、重复快捷词、未知 `appRef` 格式或其他动作类型直接拒绝。外部包不得声明任意绝对可执行路径、命令行参数、脚本或动态模块。
 
-重复导入同一 `packageId` 和相同版本默认显示“已导入”，不重复写入；更高版本以已保存的规范化快照生成 diff，对新增、修改和删除命令逐项预览，只有用户确认后才同时替换包快照和相应命令；失败时旧快照与旧命令保持不变。被新版本删除但用户修改过的命令默认保留并转为 `source.kind = 'user'`，未修改命令默认提示删除。更低版本拒绝并提示已存在更新版本。首版不提供包级“一键卸载”，用户可删除单个命令；包快照只在更高版本成功提交时替换。
+重复导入同一 `packageId` 时按版本和 digest 处理：相同版本且 digest 相同显示“已导入”，不重复写入；相同版本但 digest 不同返回 `PACKAGE_VERSION_COLLISION`，视为版本碰撞或文件被替换，不允许覆盖；更低版本拒绝并提示已存在更新版本。
+
+更高版本以已保存的规范化快照同时生成 apps 和 commands diff。预览逐项列出应用模板及命令的新增、修改和删除，并使用新 apps 集合与内置 `base.json` 重新验证所有传入及保留命令的 `appRef`。包文件内的 app ID 保持 §7.1 格式；CommandRegistry 解析时将同包引用映射为内部 `package:<packageId>/<appId>` 标识，重启后仍由保存的包快照恢复该映射。新包自身存在悬空 `appRef` 时直接拒绝；旧的用户修改命令若引用将删除的 package-local app，预览产生 `dangling-app-ref` 阻塞冲突，用户必须删除该命令或把它重映射到新包/内置目录中的有效 `appRef`，否则不能提交。只有用户确认完整 app/command diff 且所有引用重新校验通过后，才同时替换包快照和相应命令；失败时旧快照、旧应用模板与旧命令保持不变。
+
+被新版本删除但用户修改过的命令默认保留并将来源替换为 `source = {kind: 'user'}`，但仍必须满足上述 `appRef` 规则；未修改命令默认提示删除。首版不提供包级“一键卸载”，用户可删除单个命令；包快照只在更高版本成功提交时替换。
 
 导入预览只接受主进程通过真实路径读取的文件，Renderer 不能传入 `file://` 或网络 URL；路径必须解析为本地普通文件并在 256 KiB 限制内。
 
@@ -782,13 +881,27 @@ type QuickCommand =
 ```ts
 interface ImportPreview {
   previewId: string
-  importToken: string
   packageDigest: string
   expectedConfigVersion: number
   expiresAt: string
   commands: NormalizedPackageCommand[]
   apps: AppTemplate[]
-  conflicts: Array<{ kind: 'command-id' | 'keyword'; incomingId: string; existingId?: string }>
+  appChanges: Array<
+    | { kind: 'added'; after: AppTemplate }
+    | { kind: 'modified'; before: AppTemplate; after: AppTemplate }
+    | { kind: 'deleted'; before: AppTemplate }
+  >
+  commandChanges: Array<
+    | { kind: 'added'; after: NormalizedPackageCommand }
+    | { kind: 'modified'; before: NormalizedPackageCommand; after: NormalizedPackageCommand }
+    | { kind: 'deleted'; before: NormalizedPackageCommand }
+  >
+  conflicts: Array<{
+    kind: 'command-id' | 'keyword' | 'dangling-app-ref'
+    incomingId: string
+    existingId?: string
+    appRef?: string
+  }>
 }
 
 type NormalizedPackageCommand = QuickCommand & {
@@ -796,7 +909,7 @@ type NormalizedPackageCommand = QuickCommand & {
 }
 ```
 
-`previewImport(importToken)` 消费 token 并返回 `ImportPreview`；`commitImport(previewId, decisions, expectedConfigVersion)` 只接受同窗口、未过期且尚未消费的 previewId。决策中必须覆盖全部冲突，且包 digest、配置版本和文件身份复检通过后才调用 ConfigStore。成功或失败后 previewId 均不可再次提交。
+`previewImport(importToken)` 消费 token 并返回不含原 token 的 `ImportPreview`；`commitImport({previewId, packageDigest, decisions, expectedConfigVersion})` 只接受同窗口、未过期且尚未消费的 previewId。`ImportDecision` 只允许针对预览中存在的冲突选择替换、重命名、跳过、删除依赖命令或重映射到预览列出的有效 `appRef`；决策必须覆盖全部阻塞冲突。包 digest、配置版本、文件身份和最终引用复检通过后才调用 ConfigStore。成功或失败后 previewId 均不可再次提交。
 
 ### 8.3 文件关联与安全边界
 
@@ -813,7 +926,7 @@ type NormalizedPackageCommand = QuickCommand & {
 - 普通搜索的网页兜底使用原始用户文本，不使用内部规范化后的拼音或小写文本。
 - 浏览器打开失败时提供复制最终网址的操作。
 
-`open_url` 和网页兜底都使用 BrowserAdapter；复制最终网址只接受本次执行生成的 URL token，不接受 Renderer 自行提交 URL。
+`open_url` 和网页兜底都使用 BrowserAdapter；复制最终网址只接受本次执行生成的 GeneratedUrlToken，不接受 Renderer 自行提交 URL。`copyGeneratedUrl(token)` 是唯一的复制 IPC，成功返回 `COPIED`，失败返回 `COPY_FAILED`、`URL_TOKEN_EXPIRED` 或 `URL_TOKEN_INVALID`。
 
 ## 10. 错误处理
 
@@ -915,6 +1028,7 @@ type NormalizedPackageCommand = QuickCommand & {
 - 导入冲突的替换、重命名和跳过。
 - 原子配置写入和备份恢复。
 - 空输入、无参数 `llq`、Unicode NFKC、快捷词/应用名碰撞、Damerau-Levenshtein 阈值和固定 fixture。
+- 原始 token 边界、大小写/全角参数命令、内部空白保留和 512 字符输入上限。
 - `settings.json`、`user.json`、`app-index.json` 和 `*.quickcmd.json` 的版本、大小、深度、未知字段和迁移。
 
 ### 13.2 集成测试
@@ -928,7 +1042,10 @@ type NormalizedPackageCommand = QuickCommand & {
 - 搜索引擎切换与自定义模板。
 - ConfigStore 版本冲突、事务回滚、Worker 崩溃重启与快照重放。
 - 主进程文件选择器 token 的单次使用、过期和路径验证。
-- fake Hotkey/Application/Autostart/Browser adapter 的全部错误枚举。
+- base catalog v1→v2 与用户覆盖合并，确认用户字段和 tombstone 不被更新覆盖。
+- 包升级时 apps/commands 联合 diff、同版本不同 digest 和悬空 `appRef` 拒绝。
+- GeneratedUrlToken 的窗口绑定、过期、单次复制尝试消费和窗口销毁清理。
+- fake Hotkey/Application/Autostart/Browser/Clipboard adapter 的全部错误枚举，以及系统副作用成功但设置保存失败时的补偿。
 
 ### 13.3 Electron 端到端测试
 
@@ -969,19 +1086,20 @@ Windows 11 22H2+ 与 macOS 13 Ventura+（最低支持版本和当前构建版本
 
 | AC | 验收行为 | 测试 ID / fixture | 平台 |
 | --- | --- | --- | --- |
-| AC-01 | 快捷键注册、冲突、双阶段替换回滚 | `HOTKEY-UNIT-01`、`HOTKEY-E2E-01` | Win/macOS |
-| AC-02 | 唤起、焦点、上下循环、受控子窗口失焦 | `WINDOW-E2E-01..04`，双显示器 fixture | Win/macOS |
-| AC-03 | 名称、alias、拼音、模糊、空状态和 `llq` 状态机 | `SEARCH-UNIT-01..12`，§5.7 fixture | 共用核心 |
+| AC-01 | 快捷键注册、冲突、prepared replace、设置保存失败回滚 | `HOTKEY-UNIT-01..03`、`HOTKEY-E2E-01` | Win/macOS |
+| AC-02 | 唤起、焦点、上下循环、受控子窗口失焦、按工作区重算宽度 | `WINDOW-E2E-01..05`，双显示器 fixture | Win/macOS |
+| AC-03 | 名称、alias、拼音、模糊、空状态、raw token 边界和 `llq` 状态机 | `SEARCH-UNIT-01..15`，§5.7 fixture | 共用核心 |
 | AC-04 | Command CRUD IPC、configVersion 冲突和即时快照 | `CONFIG-INT-01..06` | 共用核心 |
 | AC-05 | 应用扫描、目录防抖、Windows exe/App Paths/UWP、macOS Bundle | `INDEX-INT-01..08` + fake source | 分平台 |
 | AC-06 | 手动绑定经系统选择器保存，重建 app-index 后仍可用 | `BINDING-INT-01`、`BINDING-E2E-01` | Win/macOS |
-| AC-07 | 包导入、冲突、升级 diff、重启后 package-local appRef 可解析 | `IMPORT-INT-01..10`，包 v1/v2 fixture | 共用核心 |
+| AC-07 | 包导入、apps/commands 联合 diff、版本/digest 碰撞、悬空引用、重启解析 | `IMPORT-INT-01..14`，包 v1/v2 fixture | 共用核心 |
 | AC-08 | import token/previewId 过期、跨窗口、重放、hash/TOCTOU 拒绝 | `IMPORT-SEC-01..07` | 共用核心 |
 | AC-09 | snapshotVersion 对 config/index/usage 变化映射及 Worker 恢复 | `WORKER-INT-01..06` | 共用核心 |
-| AC-10 | 应用/浏览器失败、revealAction、复制 URL token、自启保存回滚 | `ACTION-INT-01..08` | 分平台 fake + 手测 |
+| AC-10 | 应用/浏览器失败、revealAction、GeneratedUrlToken 生命周期、自启保存与补偿 | `ACTION-INT-01..12` | 分平台 fake + 手测 |
 | AC-11 | 配置损坏、备份恢复、顶层受控重启和日志脱敏 | `RECOVERY-INT-01..06` | 共用核心 |
 | AC-12 | 热键和输入性能门槛 | `PERF-HOTKEY-01`、`PERF-QUERY-01` | 基线设备 |
 | AC-13 | 测试安装包文件关联、单实例和卸载清理 | `PACKAGE-MANUAL-01..03` | M3 Win/macOS |
+| AC-14 | base catalog 更新与用户覆盖/tombstone 合并 | `REGISTRY-INT-01..04`，base v1/v2 fixture | 共用核心 |
 
 每条 §16 验收条件必须引用至少一个 AC；对应测试失败时该里程碑不能标记完成。
 
@@ -1027,7 +1145,7 @@ Windows 11 22H2+ 与 macOS 13 Ventura+（最低支持版本和当前构建版本
 - 网页兜底、固定网址和 `llq <关键词>` 行为正确（AC-03、AC-10）。
 - 设置、命令 CRUD、自启和配置版本冲突能够正确保存或回滚（AC-04、AC-10）。
 - 内置模板和外部命令包能够安全导入、升级并在重启后保持可解析（AC-07、AC-08）。
-- 用户修改和手动应用绑定不会被 `base.json` 更新或应用缓存重建覆盖（AC-06、AC-07）。
+- 用户修改不会被 `base.json` 更新覆盖，手动应用绑定不会被应用缓存重建覆盖（AC-06、AC-14）。
 - 配置损坏、索引失败和 Worker 崩溃能够恢复或明确降级（AC-09、AC-11）。
 - 非法外部包不能执行脚本、Shell 或任意程序路径（AC-08）。
 - M3 测试安装包的文件关联、单实例和卸载清理通过双平台验证（AC-13）。
