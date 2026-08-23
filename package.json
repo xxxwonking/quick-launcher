@@ -7,6 +7,8 @@
   "packageManager": "pnpm@10.18.3",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "pnpm run electron:install",
+    "electron:install": "install-electron --no",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -15,7 +17,8 @@
     "test": "pnpm run test:node && pnpm run test:renderer",
     "test:node": "vitest run --config vitest.config.ts",
     "test:renderer": "vitest run --config vitest.renderer.config.ts",
-    "test:watch": "vitest --config vitest.config.ts",
+    "test:watch:node": "vitest --config vitest.config.ts",
+    "test:watch:renderer": "vitest --config vitest.renderer.config.ts",
     "test:e2e": "playwright test --pass-with-no-tests"
   },
   "dependencies": {
@@ -58,7 +61,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron",
       "electron-winstaller",
       "esbuild"
     ]
