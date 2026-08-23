@@ -132,6 +132,8 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 
 ### 5.1 输入规范化
 
+系统同时保留 `rawInput` 和 `normalizedInput`。普通搜索使用 normalizedInput 匹配，网页查询使用经过安全检查的 rawInput/原始参数。
+
 普通搜索在匹配前执行：
 
 - 使用 Unicode NFKC 规范化，将全角英数字转换为兼容形式。
@@ -140,7 +142,7 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 - 支持中文应用名、拼音全拼和拼音首字母。
 - 快捷词只能由 1--32 个 Unicode 字母、数字、汉字、连字符或下划线组成，不包含空白。
 - 用户快捷词在“规范化后”的全局命令命名空间中唯一；应用命令、固定网址和参数命令不能共享同一个快捷词。
-- 首版不实现引号、反斜杠转义或多参数语法。参数命令的第一个空格分隔快捷词与剩余完整参数。
+- 首版不实现引号、反斜杠转义或多参数语法。参数命令用 normalizedInput 识别第一个 token，但在 rawInput 中找到该 token 后的第一个 Unicode 空白边界；参数只去除首尾空白，内部空白保持原样。控制字符被拒绝，参数最长 512 个 Unicode 字符。
 
 ### 5.2 命令类型
 
@@ -188,9 +190,9 @@ Electron accelerator 使用平台明确映射：Windows 默认 `Alt+Space`，mac
 匹配优先级不可跨级：
 
 1. 参数命令。
-2. 精确用户快捷词。
+2. 精确用户快捷词或应用 alias。
 3. 精确应用名称。
-4. 名称前缀、拼音全拼和拼音首字母。
+4. alias/名称前缀、拼音全拼和拼音首字母。
 5. 容错模糊匹配。
 6. 网页兜底。
 
@@ -206,9 +208,14 @@ SearchWorker 只返回以下判别联合：
 
 ```ts
 type SearchItem =
-  | { kind: 'action'; actionId: string; title: string; subtitle: string; iconRef?: string; executable: true }
+  | { kind: 'action'; status: 'ready'; execution: ExecuteRequest; title: string; subtitle: string; iconRef?: string; executable: true }
+  | { kind: 'action'; status: 'unavailable'; actionId: string; title: string; subtitle: string; iconRef?: string; executable: false; errorCode: 'APP_NOT_FOUND' | 'APP_TARGET_INVALID' }
   | { kind: 'web-fallback'; query: string; title: string; executable: true }
   | { kind: 'hint'; code: 'missing-argument' | 'empty-state'; title: string; executable: false }
+
+type ExecuteRequest =
+  | { actionId: string; argument: null }
+  | { actionId: string; argument: { kind: 'web-query'; raw: string } }
 
 interface SearchResponse {
   queryId: number
@@ -221,8 +228,9 @@ interface SearchResponse {
 
 ```ts
 interface SearchSnapshot {
-  configVersion: number
-  applications: Array<{ actionId: string; displayName: string; aliases: string[]; pinyin: string; initials: string[]; iconRef?: string }>
+  snapshotVersion: number
+  sourceVersions: { config: number; applicationIndex: number; usage: number }
+  applications: Array<{ actionId: string; displayName: string; aliases: string[]; pinyin: string; initials: string[]; iconRef?: string; status: 'ready' | 'unavailable' }>
   commands: Array<{ actionId: string; keyword: string; type: 'launch_app' | 'open_url' | 'web_search'; title: string; targetRef: string }>
   usage: Record<string, { count: number; lastUsedAt: string | null }>
 }
@@ -232,26 +240,26 @@ interface SearchSnapshot {
 
 ### 5.6 过期查询与快照
 
-每次查询包含单调递增的 `queryId`，每个命令快照包含单调递增的 `snapshotVersion`。Renderer 只接受同时匹配当前查询和当前快照的结果；较慢返回的旧查询或旧配置结果被丢弃，避免快速输入或导入配置时列表回跳。
+每次查询包含单调递增的 `queryId`，每个命令快照包含由 CommandRegistry 分配的单调递增 `snapshotVersion`。配置、应用索引或使用历史任一来源版本改变时，CommandRegistry 都生成新快照并将 `snapshotVersion + 1`。Renderer 只接受同时匹配当前查询和当前快照的结果；较慢返回的旧查询或旧配置结果被丢弃，避免快速输入或导入配置时列表回跳。
 
 Worker 异常退出时由 `SearchWorkerSupervisor` 创建新 Worker，清空待处理请求，以最新快照重新预热并重放当前输入一次。恢复期间 Renderer 显示非阻塞的“正在恢复搜索”状态，主进程继续运行。
 
 ### 5.7 固定匹配算法与空状态 fixture
 
-拼音由固定版本的 `pinyin-pro` 词典生成；多音字取词典默认读音，不做上下文猜测。模糊匹配使用归一化字符串的 Damerau-Levenshtein 距离：查询长度 1--3 时只接受距离 0，长度 4--7 接受距离不超过 1，长度 8 及以上接受距离不超过 2；距离不满足阈值的候选不进入模糊等级。匹配分数依次比较等级、编辑距离、匹配字段优先级（keyword > displayName > pinyin > initials）、使用次数降序、最近时间降序、稳定 ID 升序。
+拼音由锁文件固定的 `pinyin-pro@3.29.3` 词典生成；多音字取词典默认读音，不做上下文猜测。模糊匹配对 Unicode code point 数组计算 Damerau-Levenshtein 距离，并分别比较 keyword、每个 alias、displayName、pinyin 和每个 initials 值，取最佳字段结果：查询长度 1--3 时只接受距离 0，长度 4--7 接受距离不超过 1，长度 8 及以上接受距离不超过 2；距离不满足阈值的候选不进入模糊等级。匹配分数依次比较等级、编辑距离、字段优先级（keyword > alias > displayName > pinyin > initials）、使用次数降序、最近时间降序、稳定 ID 升序。
 
 固定 fixture：
 
 | 输入 | 结果（按顺序） |
 | --- | --- |
-| 空字符串 | 最近使用应用（无历史时为已启用命令，再按显示名升序）；无网页项 |
+| 空字符串 | 最近使用的 `launch_app` action（无历史时为已启用的 `launch_app` 命令）；无 open_url、web_search 或网页项 |
 | `wx`，用户命令 `wx -> 微信` | 微信 action；网页 fallback |
 | `weixn`，无快捷词 | 微信 fuzzy action；网页 fallback |
 | `llq` | `hint(missing-argument)`；无网页 fallback |
 | `llq   抖音` | web-search action（参数为“抖音”）；无其他结果 |
 | `cursor` 同时是用户 keyword 和应用名 | 用户 keyword action；应用名 action 作为下一匹配等级 |
 
-“最近使用”定义为 `usage.json` 中成功执行次数大于 0 的条目，按最近时间降序、稳定 ID 升序；没有历史时“已启用命令”按 keyword 升序后再按显示名升序。
+“最近使用”只统计 `launch_app` 成功执行且次数大于 0 的条目，按最近时间降序、稳定 ID 升序；没有历史时只显示已启用的 `launch_app` 命令，按 keyword、显示名、稳定 ID 升序。
 
 ## 6. 总体架构
 
@@ -263,6 +271,7 @@ Worker 异常退出时由 `SearchWorkerSupervisor` 创建新 Worker，清空待�
 | ConfigStore | `user.json` | `user.json` 事务 | 带 configVersion 的用户配置 |
 | UsageStore | `usage.json` | `usage.json` | 使用历史快照 |
 | ApplicationIndexer | 平台来源、`app-index.json` | `app-index.json`、目录监听 | 应用快照 |
+| ApplicationBindingService | appRef、系统选择结果 | 通过 ConfigStore 写 `user.json.appBindings` | 已验证用户绑定 |
 | CommandRegistry | base、用户配置、应用/历史快照 | 无文件写入 | SearchSnapshot |
 | PackageImporter | opaque import token、Schema | 无直接文件写入 | ConfigStore patch/预览 |
 | SearchWorkerSupervisor | SearchSnapshot | Worker 生命周期 | SearchResponse |
@@ -331,7 +340,7 @@ interface ApplicationSource {
 }
 
 interface LaunchTarget {
-  kind: 'windows-shortcut' | 'windows-uwp' | 'macos-bundle'
+  kind: 'windows-shortcut' | 'windows-app-path' | 'windows-executable' | 'windows-uwp' | 'macos-bundle'
   stableId: string
   displayName: string
   canLaunch(): Promise<boolean>
@@ -341,10 +350,10 @@ interface LaunchTarget {
 
 平台适配器：
 
-- Windows：开始菜单快捷方式和已解析的 App Paths；UWP/Store 只纳入拥有可验证 AppUserModelID 的条目，使用 `shell:AppsFolder\\<AUMID>` 启动。
+- Windows：开始菜单快捷方式、已解析的 App Paths 和独立 `.exe`；UWP/Store 只纳入拥有可验证 AppUserModelID 的条目，使用 `shell:AppsFolder\\<AUMID>` 启动。
 - macOS：`/Applications`、`~/Applications` 和 LaunchServices 可识别的 `.app` Bundle，使用 Bundle ID 或已验证 Bundle URL 启动。
 
-应用记录使用稳定平台标识，如 Windows AppUserModelID/已解析快捷方式信息或 macOS Bundle ID。路径只属于机器缓存，不写进官方模板。每个启动目标必须先通过 `canLaunch()`；失效目标返回 `APP_NOT_FOUND`，启动调用超过 3 秒返回 `APP_LAUNCH_TIMEOUT`。
+应用记录使用稳定平台标识，如 Windows AppUserModelID、快捷方式目标 hash、App Paths key、独立 exe 的 canonical path hash 或 macOS Bundle ID。路径只属于机器缓存，不写进官方模板。`LaunchTarget.kind` 为 `windows-shortcut`、`windows-app-path`、`windows-executable`、`windows-uwp` 或 `macos-bundle`；每种类型有对应校验和启动器。每个启动目标必须先通过 `canLaunch()`；失效目标返回 `APP_NOT_FOUND`，启动调用超过 3 秒返回 `APP_LAUNCH_TIMEOUT`。
 
 #### CommandRegistry
 
@@ -375,7 +384,9 @@ interface LaunchTarget {
 
 如果目标应用当前未安装，允许导入模板，但命令标记为“应用不可用”，不会执行；用户可以稍后重新扫描或通过主进程系统选择器重新定位已索引应用。
 
-“重新定位应用”只允许由主进程打开系统文件选择器：Windows 过滤 `.exe` 或已验证的快捷方式目标，macOS 过滤 `.app` Bundle。主进程检查所选目标是本地普通文件/Bundle、可读、平台格式正确，并用对应的 `appRef` 生成或更新 `app-index.json` 中的用户覆盖记录；失败时不改变旧记录。Renderer 只能提交内部 `appRef`，不能提交路径。
+#### ApplicationBindingService
+
+“重新定位应用”只允许 ApplicationBindingService 由主进程打开系统文件选择器：Windows 过滤 `.exe` 或已验证的快捷方式目标，macOS 过滤 `.app` Bundle。它检查所选目标是本地普通文件/Bundle、可读、平台格式正确，并通过 ConfigStore 将已验证绑定写入 `user.json.appBindings`；ApplicationIndexer 在扫描和重建缓存时读取绑定快照并生成对应 LaunchTarget。失败时不改变旧绑定。Renderer 只能提交内部 `appRef`，不能提交路径。
 
 #### ActionService
 
@@ -401,9 +412,11 @@ Renderer 不得提交任意可执行路径或任意系统命令。它只能请�
 `ConfigStore` 是用户命令配置的唯一持久化 owner。它独占 `user.json` 的读取、迁移、事务写入、备份和恢复；`PackageImporter`、CommandRegistry 和设置 UI 不得直接写文件。
 
 - 写入目标：`user.json` 与 `user.json.bak`。
-- 事务接口：`prepareImport()`、`commitUserConfig()`、`rollback()`。
+- 事务接口：`beginImportCommit(previewId, packageDigest, expectedConfigVersion, patch)`、`commit()`、`rollback()`。
 - 同一时刻只允许一个写事务；后到的导入请求排队或失败并提示重试。
 - 用户命令删除通过 `disabledCommandIds` tombstone 表示，避免内置 `base.json` 更新后重新出现。
+
+`beginImportCommit` 只接受仍在 5 分钟有效期内、绑定发起窗口的 preview session；session 包含 `previewId`、文件 digest、规范化 patch 和生成时的 `expectedConfigVersion`。`commit()` 只可消费一次，提交时复检当前文件身份/digest、配置版本和 keyword 唯一性；任何不匹配返回 `PREVIEW_EXPIRED`、`PREVIEW_REPLAYED`、`PACKAGE_CHANGED` 或 `CONFIG_CONFLICT`，不写入文件。超时、崩溃或取消自动 rollback。
 
 #### UsageStore
 
@@ -425,6 +438,31 @@ Renderer 不得提交任意可执行路径或任意系统命令。它只能请�
 
 平台适配器必须有可注入的 fake 实现，单元和集成测试不得依赖真实注册表、LaunchServices、默认浏览器或登录项。
 
+最小平台接口：
+
+```ts
+interface HotkeyAdapter {
+  register(accelerator: string): Promise<{ code: 'REGISTERED' | 'CONFLICT' | 'PERMISSION_DENIED' | 'INVALID_ACCELERATOR' }>
+  unregister(accelerator: string): Promise<void>
+}
+
+interface AutostartAdapter {
+  setEnabled(enabled: boolean): Promise<{ code: 'AUTOSTART_ENABLED' | 'AUTOSTART_DISABLED' | 'AUTOSTART_RETRY' | 'AUTOSTART_PERMISSION_DENIED' }>
+}
+
+interface BrowserAdapter {
+  open(url: string): Promise<{ code: 'BROWSER_OPENED' | 'BROWSER_OPEN_FAILED' | 'URL_REJECTED' }>
+  copy(url: string): Promise<{ code: 'COPIED' | 'COPY_FAILED' }>
+}
+
+interface WindowPlatformAdapter {
+  getPointerWorkArea(): Promise<{ x: number; y: number; width: number; height: number }>
+  activateAndShow(windowId: string, bounds: { x: number; y: number; width: number; height: number }): Promise<{ code: 'SHOWN' | 'ACTIVATION_DENIED' }>
+}
+```
+
+Window bounds使用 §4.2 公式计算；fake adapter 固定返回 work area、注册冲突、权限失败和浏览器失败，用于契约测试。
+
 ### 6.2 SearchWorker
 
 SearchWorker 由主进程通过 Node.js `worker_threads` 创建并常驻，持有预处理后的内存索引。Renderer 不直接创建或管理 Worker；`SearchWorkerSupervisor` 负责生命周期、消息队列和异常恢复。
@@ -441,11 +479,11 @@ SearchWorker 由主进程通过 Node.js `worker_threads` 创建并常驻，持�
 规范接口：
 
 ```ts
-replaceSnapshot(snapshot: { version: number; data: SearchSnapshot }): void
-query(request: { queryId: number; snapshotVersion: number; text: string; limit: number }): Promise<SearchResponse>
+replaceSnapshot(snapshot: SearchSnapshot): Promise<{ snapshotVersion: number; accepted: true }>
+query(request: { queryId: number; snapshotVersion: number; text: string; limit: 1 | 8 }): Promise<SearchResponse>
 ```
 
-快照替换确认成功后，CommandRegistry 才发布新的 `snapshotVersion` 给 Renderer。Worker 崩溃时 Supervisor 拒绝并清空未完成 Promise，创建新 Worker，加载最新快照，然后只重放 Renderer 当前输入；最多连续重启 3 次，仍失败时退化到主线程的“精确快捷词/精确应用名”最小搜索并显示故障提示。
+CommandRegistry 先向 Worker 等待 `replaceSnapshot` ack，确认成功后才将同一 `snapshotVersion` 发布给 Renderer。Worker 崩溃时 Supervisor 拒绝并清空未完成 Promise，创建新 Worker，加载最新快照，然后只重放 Renderer 当前输入；最多连续重启 3 次，仍失败时退化到主线程的“精确快捷词/精确应用名”最小搜索并显示故障提示。
 
 ### 6.3 Renderer
 
@@ -476,18 +514,27 @@ Preload 暴露小而稳定的白名单接口，例如：
 
 ```ts
 launcher.search(query)
-launcher.execute(actionId, args)
-launcher.executeWebFallback(query)
+launcher.execute(request: ExecuteRequest)
+launcher.executeWebFallback(request: { query: string })
 launcher.getSettings()
 launcher.updateSettings(patch)
+launcher.getCommands()
+launcher.createCommand(draft, expectedConfigVersion)
+launcher.updateCommand(commandId, patch, expectedConfigVersion)
+launcher.setCommandEnabled(commandId, enabled, expectedConfigVersion)
+launcher.deleteCommand(commandId, expectedConfigVersion)
 launcher.chooseImportFile()
+launcher.createImportTokenFromDrop(droppedFileHandle)
 launcher.previewImport(importToken)
-launcher.commitImport(decisions)
+launcher.commitImport(previewId, decisions, expectedConfigVersion)
 launcher.chooseApplicationTarget(appRef)
+launcher.revealAction(actionId)
 launcher.refreshApplications()
 ```
 
-主进程对所有 IPC 参数做运行时校验，不能依赖 Renderer 的 TypeScript 类型作为安全边界。系统文件选择器由主进程打开，并返回随机、单次使用、5 分钟过期的 opaque token；Renderer 不获得真实路径。拖放文件先经过主进程的规范化、普通文件检查、后缀和大小校验，再换取同类 token。
+主进程对所有 IPC 参数做运行时校验，不能依赖 Renderer 的 TypeScript 类型作为安全边界。系统文件选择器由主进程打开，并返回至少 128 bit 随机、单次使用、5 分钟过期且绑定 `webContents.id` 的 opaque import token；Renderer 不获得真实路径。拖放通过 preload 提供的受控 file handle 调用 `createImportTokenFromDrop`，主进程解析 realpath、拒绝目录/网络 URL/无法读取文件并记录 `{canonicalPath, size, mtime, sha256}` 后换取同类 token。preview 消费 import token 并创建新的 previewId；commit 时再次 stat/hash，防止 symlink 或 TOCTOU 替换。previewId 同样绑定窗口、单次提交并在 5 分钟后过期。
+
+命令 CRUD IPC 全部进入 ConfigStore 的 compare-and-swap 事务；`revealAction` 只接受内部 actionId，仅对仍有效的本地文件型 LaunchTarget 调用平台 reveal，UWP 和不可定位目标返回 `REVEAL_NOT_SUPPORTED`。
 
 ## 7. 数据文件
 
@@ -543,6 +590,8 @@ userData/
 
 应用匹配可以综合多个信号评分，不能仅凭通用可执行文件名静默绑定错误应用。
 
+`base.json` 顶层契约为 `{schemaVersion: 1, catalogVersion: string, apps: AppTemplate[], commands: QuickCommand[]}`；文件最大 1 MiB、JSON 深度最大 10、应用最多 1,000 项、命令最多 2,000 项，所有对象未知字段拒绝。`catalogVersion` 是不可空发布版本字符串；应用 ID、命令 ID 和 keyword 在各自命名空间唯一。新于支持 Schema 的目录使基础模板功能禁用但不阻塞用户命令；旧版本只通过随应用发布的顺序迁移函数读取，不改写资源文件。
+
 基础目录与外部包共用的应用模板契约：
 
 ```ts
@@ -557,7 +606,7 @@ interface AppTemplate {
 }
 ```
 
-模板 `id` 遵循命令 ID 字符规则；`displayName` 为 1--128 字符；别名最多 8 个且均遵循 keyword 规则；每个平台识别数组最多 16 项。所有对象未知字段拒绝。外部包可选携带最多 50 个 `apps` 模板，`appRef` 必须指向同包模板或内置 `base.json` 中的应用 ID；模板只提供识别信号，不得提供绝对路径或启动参数。
+模板 `id` 遵循命令 ID 字符规则；`displayName` 为 1--128 字符；别名最多 8 个且均遵循 keyword 规则；每个平台识别数组最多 16 项。每个 AppTemplate 至少包含一个非空平台识别信号，不能只有显示名称。所有对象未知字段拒绝。外部包可选携带最多 50 个 `apps` 模板，`appRef` 必须指向同包模板或内置 `base.json` 中的应用 ID；模板只提供识别信号，不得提供绝对路径或启动参数。
 
 ### 7.2 user.json
 
@@ -578,29 +627,54 @@ interface AppTemplate {
   "commands": [],
   "enabledBaseAppIds": [],
   "disabledCommandIds": [],
+  "appBindings": {},
   "importedPackages": {}
 }
 ```
 
-`commands` 中的用户命令完全覆盖同 ID 的基础模板；`disabledCommandIds` 是删除/禁用基础命令的 tombstone。ConfigStore 使用 `commit(expectedConfigVersion, patch)` 比较并交换；版本不匹配返回 `CONFIG_CONFLICT`，调用方重新加载并让用户重试。成功写入时递增 `configVersion`，采用“写临时文件 → 刷新 → 原子替换”，保留上次有效备份，然后发布同版本的命令快照。
+`commands` 中的用户命令完全覆盖同 ID 的基础模板；`disabledCommandIds` 是删除/禁用基础命令的 tombstone。ConfigStore 对所有命令 CRUD 和导入统一使用 `commit(expectedConfigVersion, patch)` 比较并交换；版本不匹配返回 `CONFIG_CONFLICT`，调用方重新加载并让用户重试。成功写入时递增 `configVersion`，采用“写临时文件 → 刷新 → 原子替换”，保留上次有效备份，然后由 CommandRegistry 生成新的 `snapshotVersion`。
 
-命令 Schema：`commands` 是数组，最多 1,000 项；每项必须符合 §7.4 的 `QuickCommand`，未知字段拒绝。`enabledBaseAppIds` 和 `disabledCommandIds` 是唯一字符串数组，`importedPackages` 的 key 是 `packageId`，value 为 `{version: string, importedAt: string}`。数组不允许重复值，所有时间使用 ISO 8601 UTC。基础模板命令与用户命令合并后再做一次全局 keyword 唯一性校验；冲突会让提交失败并返回 `KEYWORD_CONFLICT`。
+命令 Schema：`commands` 是数组，最多 1,000 项；每项必须符合 §7.5 的 `QuickCommand`，并额外保存 `{source: {kind: 'base' | 'user' | 'package'; packageId?: string; packageVersion?: string}}`，未知字段拒绝。`enabledBaseAppIds` 和 `disabledCommandIds` 是唯一字符串数组。`appBindings` 的 key 是 `appRef`，value 必须符合下面的 `AppBinding` 联合；本地路径只存在于主进程配置，不直接暴露给 Renderer。`importedPackages` 的 key 是 `packageId`，value 为 `{version: string; importedAt: string; apps: AppTemplate[]; commands: QuickCommand[]; digest: string}`，保存规范化包快照。数组不允许重复值，所有时间使用 ISO 8601 UTC。基础模板、用户命令和包快照合并后再做一次全局 keyword 唯一性校验；冲突会让提交失败并返回 `KEYWORD_CONFLICT`。
+
+```ts
+type AppBinding =
+  | { platform: 'windows'; target: { kind: 'windows-shortcut'; path: string; targetHash: string }; verifiedAt: string }
+  | { platform: 'windows'; target: { kind: 'windows-executable'; path: string; fileIdentity: string }; verifiedAt: string }
+  | { platform: 'macos'; target: { kind: 'macos-bundle'; bundleId: string; bundleUrl: string }; verifiedAt: string }
+```
+
+手动选择的 `.exe` 始终规范化为 `windows-executable`；App Paths 只由系统扫描产生，不由用户绑定创建。
+
+`user.json` 最大 5 MiB、JSON 深度最大 12，所有对象未知字段拒绝。新于支持版本时文件保持不变并进入只读恢复页；旧版本通过有测试覆盖的顺序迁移函数升级，升级失败回滚 `.bak`。包快照和 appBindings 的路径字段不得出现在日志或任何导出内容中。
 
 `settings.json` 的顶层契约为：
 
 ```json
 {
   "schemaVersion": 1,
+  "onboardingCompleted": false,
   "hotkey": { "accelerator": "Alt+Space" },
   "autostart": false,
-  "searchEngine": { "kind": "bing", "template": null },
+  "searchEngine": { "kind": "bing" },
   "window": { "width": 680 }
 }
 ```
 
-未知字段拒绝，缺失字段使用明确默认值；`schemaVersion` 只允许 1，未来迁移必须以纯函数将旧对象转换为新对象并先写备份。`settings.json` 不保存命令、应用路径或使用历史。
+`searchEngine` 是 `{kind: 'bing' | 'baidu' | 'google'}` 或 `{kind: 'custom'; template: string}` 的判别联合；custom template 遵循 §9。`window.width` 为 560--820 的整数。hotkey accelerator 为 1--64 字符并必须先通过 HotkeyAdapter 验证。未知字段拒绝，文件最大 64 KiB、JSON 深度最大 6；缺失字段使用明确默认值。`schemaVersion` 只允许 1，未来迁移必须以纯函数将旧对象转换为新对象并先写备份；新于支持版本时保留文件并进入只读恢复页。`settings.json` 不保存命令、应用路径或使用历史。
 
-### 7.3 app-index.json
+### 7.3 usage.json
+
+```ts
+interface UsageFile {
+  schemaVersion: 1
+  version: number
+  entries: Record<string, { count: number; lastUsedAt: string }>
+}
+```
+
+文件最大 1 MiB、最多 10,000 条记录，`count` 为 1--2,147,483,647 的整数，时间为 ISO 8601 UTC，未知字段拒绝。UsageStore 是唯一 owner；写入失败不阻塞动作执行，但不更新历史。新于支持版本的文件被保留并进入空历史降级，旧版本按顺序迁移。
+
+### 7.4 app-index.json
 
 `app-index.json` 是可重建缓存，保存：
 
@@ -613,7 +687,30 @@ interface AppTemplate {
 
 缓存损坏或版本不兼容时直接重建，不影响 `user.json`。ApplicationIndexer 是 `app-index.json` 的唯一写 owner；缓存写入同样使用临时文件和原子替换。
 
-### 7.4 外部 `*.quickcmd.json`
+```ts
+interface AppIndexFile {
+  schemaVersion: 1
+  indexVersion: number
+  generatedAt: string
+  applications: Array<{
+    id: string
+    displayName: string
+    stableId: string
+    target:
+      | { kind: 'windows-shortcut'; path: string; targetHash: string }
+      | { kind: 'windows-app-path'; registryKey: string; resolvedPath: string }
+      | { kind: 'windows-executable'; path: string; fileIdentity: string }
+      | { kind: 'windows-uwp'; appUserModelId: string }
+      | { kind: 'macos-bundle'; bundleId: string; bundleUrl: string }
+    iconRef?: string
+    source: string
+  }>
+}
+```
+
+文件最大 10 MiB、最多 20,000 个应用、JSON 深度最大 10，未知字段拒绝。`indexVersion` 每次成功发布新应用快照时递增。该文件只保存可重建扫描结果；用户手动绑定只保存在 `user.json.appBindings`，缓存重建时重新验证并合并。
+
+### 7.5 外部 `*.quickcmd.json`
 
 首版使用扩展名严格为 `*.quickcmd.json` 的单一 JSON 文件，不支持内嵌脚本、二进制文件或压缩资源。文件大小上限 256 KiB，最大 JSON 深度 8，最多 100 条命令，任意字符串最长 512 个 Unicode 字符。
 
@@ -647,7 +744,9 @@ type QuickCommand =
 
 约束：`id` 为 1--96 个 ASCII 字母、数字、`.`、`_` 或 `-`，包内唯一；`keyword` 遵循 §5.1；`url` 必须是 HTTP/HTTPS 且不含控制字符；`template` 必须是 HTTP/HTTPS 且恰好包含一个 `{query}`；包名、版本和 `packageId` 必填，版本使用 SemVer；Schema 版本只接受 `1`。所有对象等价于 JSON Schema 的 `additionalProperties: false`。未知字段、重复 ID、重复快捷词、未知 `appRef` 格式或其他动作类型直接拒绝。外部包不得声明任意绝对可执行路径、命令行参数、脚本或动态模块。
 
-重复导入同一 `packageId` 和相同版本默认显示“已导入”，不重复写入；更高版本仅在用户确认后合并；更低版本拒绝并提示已存在更新版本。导入预览只接受主进程通过真实路径读取的文件，Renderer 不能传入 `file://` 或网络 URL；路径必须解析为本地普通文件并在 256 KiB 限制内。
+重复导入同一 `packageId` 和相同版本默认显示“已导入”，不重复写入；更高版本以已保存的规范化快照生成 diff，对新增、修改和删除命令逐项预览，只有用户确认后才同时替换包快照和相应命令；失败时旧快照与旧命令保持不变。被新版本删除但用户修改过的命令默认保留并转为 `source.kind = 'user'`，未修改命令默认提示删除。更低版本拒绝并提示已存在更新版本。首版不提供包级“一键卸载”，用户可删除单个命令；包快照只在更高版本成功提交时替换。
+
+导入预览只接受主进程通过真实路径读取的文件，Renderer 不能传入 `file://` 或网络 URL；路径必须解析为本地普通文件并在 256 KiB 限制内。
 
 ## 8. 导入流程
 
@@ -678,6 +777,27 @@ type QuickCommand =
 
 取消、校验失败或写入失败时，现有配置完全不变。
 
+会话 DTO：
+
+```ts
+interface ImportPreview {
+  previewId: string
+  importToken: string
+  packageDigest: string
+  expectedConfigVersion: number
+  expiresAt: string
+  commands: NormalizedPackageCommand[]
+  apps: AppTemplate[]
+  conflicts: Array<{ kind: 'command-id' | 'keyword'; incomingId: string; existingId?: string }>
+}
+
+type NormalizedPackageCommand = QuickCommand & {
+  source: { kind: 'package'; packageId: string; packageVersion: string }
+}
+```
+
+`previewImport(importToken)` 消费 token 并返回 `ImportPreview`；`commitImport(previewId, decisions, expectedConfigVersion)` 只接受同窗口、未过期且尚未消费的 previewId。决策中必须覆盖全部冲突，且包 digest、配置版本和文件身份复检通过后才调用 ConfigStore。成功或失败后 previewId 均不可再次提交。
+
 ### 8.3 文件关联与安全边界
 
 文件关联只由 M3 测试安装包声明；裸源码运行不自动修改系统关联。第二实例的主进程入口可以接收操作系统传入的本地路径，但必须先完成普通文件、规范化绝对路径和 `*.quickcmd.json` 后缀校验，再转换为一次性 import token；该路径不会通过 IPC 暴露给 Renderer。导入预览不执行文件内容，也不加载包内资源。
@@ -692,6 +812,8 @@ type QuickCommand =
 - 查询参数使用 UTF-8 `encodeURIComponent` 语义，空格编码为 `%20`，再替换模板中唯一的 `{query}`；不得对完整 URL 二次编码。
 - 普通搜索的网页兜底使用原始用户文本，不使用内部规范化后的拼音或小写文本。
 - 浏览器打开失败时提供复制最终网址的操作。
+
+`open_url` 和网页兜底都使用 BrowserAdapter；复制最终网址只接受本次执行生成的 URL token，不接受 Renderer 自行提交 URL。
 
 ## 10. 错误处理
 
@@ -710,7 +832,7 @@ type QuickCommand =
 ### 10.3 启动失败
 
 - 显示可理解的错误信息和 §6.1 定义的固定错误码。
-- 对仍存在的文件目标提供“打开所在位置”。
+- 对仍存在的文件目标提供“打开所在位置”；Renderer 只能调用 `revealAction(actionId)`，由主进程校验 LaunchTarget 后调用平台 adapter。
 - 失败不增加使用次数。
 
 ### 10.4 导入失败
@@ -766,14 +888,15 @@ type QuickCommand =
 
 基线设备：Windows 11 22H2、Intel i5-1135G7、16 GB RAM、SSD；macOS 13 Ventura、Apple M1、16 GB RAM。每个平台使用固定 fixture：500 个应用、2,000 个命令别名、8 个结果上限。预热定义为窗口已创建、Worker 已加载快照且连续 3 次查询成功；冷启动单独记录，不纳入热路径百分位。
 
-事件边界：
+事件边界使用两个独立但各自同源的单调时钟，不跨进程相减：
 
-- `hotkey_received`：主进程收到快捷键回调的单调时钟时间。
-- `window_visible`：BrowserWindow 可见且首个搜索窗口绘制事件上报的时间。
-- `query_sent`：Renderer 发送带 queryId 的 IPC 时间。
-- `results_painted`：Renderer 完成当前结果列表 DOM 更新并下一帧确认的时间。
+- `hotkey_received`：主进程收到快捷键回调时记录 `process.hrtime.bigint()`。
+- `window_visible`：Renderer 完成首帧且确认搜索输入框为 activeElement 后发送 ack；主进程收到 ack 时再次记录 `process.hrtime.bigint()`。两者差值为快捷键指标。
+- `input_changed`：Renderer 的 input 事件立即记录 `performance.now()` 和 queryId。
+- `query_sent`：同一 input 处理过程中发送查询 IPC，仅作为诊断点。
+- `results_painted`：Renderer 完成匹配 queryId 的 DOM 更新并经过下一帧后记录同一 Renderer 的 `performance.now()`。它与 input_changed 的差值为输入指标。
 
-每个场景采集 200 个样本，丢弃前 10 个预热样本；百分位使用 nearest-rank（`ceil(p * n)`）计算。构建生成 `artifacts/performance.json`，包含设备、OS、fixture hash、样本和 P50/P95。失败门槛：快捷键到窗口可见 P50 ≤ 50 ms 且 P95 ≤ 100 ms；输入到结果绘制 P95 ≤ 50 ms。任一门槛失败，性能验收失败并保留报告。
+每个场景采集 200 个样本，丢弃前 10 个预热样本；百分位使用 nearest-rank（`ceil(p * n)`）计算。构建生成 `artifacts/performance.json`，包含设备、OS、Electron/Node/`pinyin-pro` 版本、fixture hash、样本和 P50/P95。失败门槛：快捷键到窗口可见 P50 ≤ 50 ms 且 P95 ≤ 100 ms；输入到结果绘制 P95 ≤ 50 ms。任一门槛失败，性能验收失败并保留报告。
 
 首次启动允许在缓存加载后后台扫描应用，但搜索窗口必须先可用。
 
@@ -842,6 +965,26 @@ Windows 11 22H2+ 与 macOS 13 Ventura+（最低支持版本和当前构建版本
 - Worker 连续重启 3 次后的降级搜索和故障提示。
 - 日志轮转上限 5 MB、最多保留 3 个文件，且不写入完整查询文本。
 
+### 13.6 验收追踪表
+
+| AC | 验收行为 | 测试 ID / fixture | 平台 |
+| --- | --- | --- | --- |
+| AC-01 | 快捷键注册、冲突、双阶段替换回滚 | `HOTKEY-UNIT-01`、`HOTKEY-E2E-01` | Win/macOS |
+| AC-02 | 唤起、焦点、上下循环、受控子窗口失焦 | `WINDOW-E2E-01..04`，双显示器 fixture | Win/macOS |
+| AC-03 | 名称、alias、拼音、模糊、空状态和 `llq` 状态机 | `SEARCH-UNIT-01..12`，§5.7 fixture | 共用核心 |
+| AC-04 | Command CRUD IPC、configVersion 冲突和即时快照 | `CONFIG-INT-01..06` | 共用核心 |
+| AC-05 | 应用扫描、目录防抖、Windows exe/App Paths/UWP、macOS Bundle | `INDEX-INT-01..08` + fake source | 分平台 |
+| AC-06 | 手动绑定经系统选择器保存，重建 app-index 后仍可用 | `BINDING-INT-01`、`BINDING-E2E-01` | Win/macOS |
+| AC-07 | 包导入、冲突、升级 diff、重启后 package-local appRef 可解析 | `IMPORT-INT-01..10`，包 v1/v2 fixture | 共用核心 |
+| AC-08 | import token/previewId 过期、跨窗口、重放、hash/TOCTOU 拒绝 | `IMPORT-SEC-01..07` | 共用核心 |
+| AC-09 | snapshotVersion 对 config/index/usage 变化映射及 Worker 恢复 | `WORKER-INT-01..06` | 共用核心 |
+| AC-10 | 应用/浏览器失败、revealAction、复制 URL token、自启保存回滚 | `ACTION-INT-01..08` | 分平台 fake + 手测 |
+| AC-11 | 配置损坏、备份恢复、顶层受控重启和日志脱敏 | `RECOVERY-INT-01..06` | 共用核心 |
+| AC-12 | 热键和输入性能门槛 | `PERF-HOTKEY-01`、`PERF-QUERY-01` | 基线设备 |
+| AC-13 | 测试安装包文件关联、单实例和卸载清理 | `PACKAGE-MANUAL-01..03` | M3 Win/macOS |
+
+每条 §16 验收条件必须引用至少一个 AC；对应测试失败时该里程碑不能标记完成。
+
 ## 14. 文件搜索的未来扩展
 
 文件搜索明确不属于首版，也不在首版代码中提前实现 Provider 抽象。未来单独设计时必须使用系统索引，而不是每次查询遍历磁盘：
@@ -861,7 +1004,7 @@ Windows 11 22H2+ 与 macOS 13 Ventura+（最低支持版本和当前构建版本
 
 ### M1：Windows 核心启动器
 
-入口：规格及 Schema 已确认。出口：Windows 上完成快捷键 → 聚焦窗口 → 缓存应用搜索 → 启动应用/网页兜底的最小垂直切片，并通过热路径性能门槛。包含设置、托盘、开机自启、基础模板和手动命令 CRUD；不包含外部包导入、系统文件关联或 macOS 实现。
+入口：本规格的 Schema、接口 DTO 和 AC 追踪表通过审查。出口：Windows 上完成快捷键 → 聚焦窗口 → 缓存应用搜索 → 启动应用/网页兜底的最小垂直切片，并通过热路径性能门槛。包含设置、托盘、开机自启、基础模板和手动命令 CRUD；不包含外部包导入、系统文件关联或 macOS 实现。
 
 ### M2：macOS 平台适配
 
@@ -877,13 +1020,15 @@ Windows 11 22H2+ 与 macOS 13 Ventura+（最低支持版本和当前构建版本
 
 首版完成必须同时满足：
 
-- Windows 与 macOS 均能注册可用快捷键并处理冲突。
-- 预热性能达到第 12 节指标。
-- 应用名、拼音、首字母、容错、快捷词和参数命令均通过测试。
-- `↑/↓` 切换不丢失输入焦点。
-- 网页兜底和 `llq <关键词>` 行为正确。
-- 内置模板和外部命令包能够安全导入并处理冲突。
-- 用户修改不会被 `base.json` 更新覆盖。
-- 配置损坏和索引失败能够恢复或降级。
-- 非法外部包不能执行脚本、Shell 或任意程序路径。
-- 所有已确认的异常均不会导致常驻主进程退出。
+- Windows 与 macOS 均能注册可用快捷键并处理冲突（AC-01）。
+- 预热性能达到第 12 节指标（AC-12）。
+- 应用名、alias、拼音、首字母、容错、快捷词和参数命令均通过测试（AC-03）。
+- `↑/↓` 切换不丢失输入焦点，多显示器和子窗口失焦行为正确（AC-02）。
+- 网页兜底、固定网址和 `llq <关键词>` 行为正确（AC-03、AC-10）。
+- 设置、命令 CRUD、自启和配置版本冲突能够正确保存或回滚（AC-04、AC-10）。
+- 内置模板和外部命令包能够安全导入、升级并在重启后保持可解析（AC-07、AC-08）。
+- 用户修改和手动应用绑定不会被 `base.json` 更新或应用缓存重建覆盖（AC-06、AC-07）。
+- 配置损坏、索引失败和 Worker 崩溃能够恢复或明确降级（AC-09、AC-11）。
+- 非法外部包不能执行脚本、Shell 或任意程序路径（AC-08）。
+- M3 测试安装包的文件关联、单实例和卸载清理通过双平台验证（AC-13）。
+- 已确认的模块故障不会直接终止常驻服务；顶层连续故障遵循受控重启上限（AC-11）。
