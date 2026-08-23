@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { searchLauncher, type LauncherItem } from '../search/search-catalog'
 
 export type SearchResponse = {
@@ -17,10 +17,11 @@ type SearchState = {
   snapshotVersion: number
 }
 
-export function useLauncherSearch(query: string, provider?: SearchProvider | undefined): SearchState {
+export function useLauncherSearch(query: string, provider?: SearchProvider | undefined, runtimeItems?: readonly LauncherItem[]): SearchState {
   const latestQueryId = useRef(0)
+  const localItems = useMemo(() => searchLauncher(query, runtimeItems), [query, runtimeItems])
   const [state, setState] = useState<SearchState>(() => ({
-    items: searchLauncher(query),
+    items: localItems,
     loading: false,
     error: null,
     queryId: 0,
@@ -28,12 +29,9 @@ export function useLauncherSearch(query: string, provider?: SearchProvider | und
   }))
 
   useEffect(() => {
+    if (!provider) return
     const queryId = latestQueryId.current + 1
     latestQueryId.current = queryId
-    if (!provider) {
-      setState({ items: searchLauncher(query), loading: false, error: null, queryId, snapshotVersion: 0 })
-      return
-    }
 
     let cancelled = false
     setState((current) => ({ ...current, loading: true, error: null, queryId }))
@@ -50,5 +48,6 @@ export function useLauncherSearch(query: string, provider?: SearchProvider | und
     }
   }, [provider, query])
 
+  if (!provider) return { items: localItems, loading: false, error: null, queryId: 0, snapshotVersion: 0 }
   return state
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LauncherWindow } from './launcher-window'
@@ -131,5 +131,18 @@ describe('LauncherWindow', () => {
     focusListener?.()
     expect(input).toHaveValue('')
     expect(input).toHaveFocus()
+  })
+
+  it('never executes a stale result when Enter follows an input event immediately', () => {
+    const onOpenSettings = vi.fn()
+    const onExecute = vi.fn()
+    render(<LauncherWindow onExecute={onExecute} onOpenSettings={onOpenSettings} />)
+    const input = screen.getByRole('combobox')
+
+    fireEvent.change(input, { target: { value: 'setting' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onOpenSettings).toHaveBeenCalledWith({ tutorial: false })
+    expect(onExecute).not.toHaveBeenCalled()
   })
 })

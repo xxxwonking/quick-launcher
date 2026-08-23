@@ -1,4 +1,5 @@
 import type { ThemePreference } from './theme/theme'
+import type { LauncherCatalogPayload } from '../../shared/launcher-item'
 
 export type LauncherThemePayload = ThemePreference | { preference: ThemePreference; resolved: 'light' | 'dark' }
 
@@ -10,9 +11,10 @@ export type LauncherRendererApi = {
   setTheme: (mode: ThemePreference) => void | Promise<void>
   onThemeChanged: (listener: (payload: LauncherThemePayload) => void) => (() => void) | void
   onFocusRequested?: (listener: () => void) => (() => void) | void
-  onFocusRequested?: (listener: () => void) => (() => void) | void
   refreshApplications?: () => Promise<{ count: number }>
   getHotkeyStatus?: () => Promise<{ requested: string; active: string | null; conflict: boolean }>
+  getCatalog?: () => Promise<LauncherCatalogPayload>
+  onCatalogChanged?: (listener: (catalog: LauncherCatalogPayload) => void) => (() => void) | void
   execute?: (item: unknown) => void | Promise<void | string>
 }
 

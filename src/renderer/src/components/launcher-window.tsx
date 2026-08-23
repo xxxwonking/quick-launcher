@@ -11,6 +11,7 @@ type LauncherWindowProps = {
   onHide?: () => void
   onOpenSettings?: (options: { tutorial: boolean }) => void
   searchProvider?: SearchProvider
+  runtimeItems?: readonly LauncherItem[]
 }
 
 export function LauncherWindow({
@@ -18,11 +19,12 @@ export function LauncherWindow({
   onHide = () => undefined,
   onOpenSettings = () => undefined,
   searchProvider,
+  runtimeItems,
 }: LauncherWindowProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('就绪')
   const inputRef = useRef<HTMLInputElement>(null)
-  const search = useLauncherSearch(query, searchProvider)
+  const search = useLauncherSearch(query, searchProvider, runtimeItems)
   const results = search.items
   const { selectedIndex, selectNext, selectPrevious, resetSelection, selectIndex } = useRovingSelection(results.length)
   const selectedItem = selectedIndex >= 0 ? results[selectedIndex] : undefined

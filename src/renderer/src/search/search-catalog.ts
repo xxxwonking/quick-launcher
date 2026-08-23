@@ -1,20 +1,6 @@
-export type LaunchAction =
-  | { type: 'launch-demo'; targetId: string }
-  | { type: 'open-settings' }
-  | { type: 'open-tutorial' }
-  | { type: 'web-search'; query: string }
+import type { LauncherItem } from '../../../shared/launcher-item'
 
-export type LauncherItem = {
-  id: string
-  title: string
-  subtitle: string
-  hint?: string
-  aliases: string[]
-  icon: 'code' | 'message' | 'terminal' | 'folder' | 'settings' | 'book' | 'globe'
-  kind: 'application' | 'command' | 'builtin' | 'web'
-  action: LaunchAction
-  disabled?: boolean
-}
+export type { LaunchAction, LauncherIcon, LauncherItem } from '../../../shared/launcher-item'
 
 type SearchCandidate = LauncherItem & { score: number; order: number }
 
@@ -119,9 +105,10 @@ const makeWebFallback = (query: string): LauncherItem => ({
   disabled: false,
 })
 
-export function searchLauncher(rawQuery: string): LauncherItem[] {
+export function searchLauncher(rawQuery: string, runtimeItems?: readonly LauncherItem[]): LauncherItem[] {
   const query = rawQuery.trim()
-  if (!query) return APPLICATIONS.slice()
+  const applications = runtimeItems ?? APPLICATIONS
+  if (!query) return applications.slice(0, 8)
 
   const commandMatch = query.match(/^llq(?:\s+(.+))?$/iu)
   if (commandMatch) {
@@ -153,12 +140,12 @@ export function searchLauncher(rawQuery: string): LauncherItem[] {
   }
 
   const normalized = normalize(query)
-  const candidates: SearchCandidate[] = [...BUILTIN_COMMANDS, ...APPLICATIONS]
+  const candidates: SearchCandidate[] = [...BUILTIN_COMMANDS, ...applications]
     .map((item, order) => ({ ...item, score: scoreCandidate(normalized, item), order }))
     .filter((item) => item.score >= 0)
     .sort((left, right) => right.score - left.score || left.order - right.order)
 
-  const local = candidates.map(({ score: _score, order: _order, ...item }) => item)
+  const local = candidates.slice(0, 8).map(({ score: _score, order: _order, ...item }) => item)
   return [...local, makeWebFallback(query)]
 }
 

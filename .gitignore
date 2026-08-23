@@ -5,6 +5,7 @@ release/
 coverage/
 playwright-report/
 test-results/
+artifacts/
 .superpowers/
 .worktrees/
 *.log

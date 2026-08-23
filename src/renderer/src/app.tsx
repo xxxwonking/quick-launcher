@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { LauncherCatalogPayload } from '../../shared/launcher-item'
 import { LauncherWindow } from './components/launcher-window'
 import { searchLauncher, type LauncherItem } from './search/search-catalog'
 import { SettingsPage } from './settings/settings-page'
@@ -12,6 +13,20 @@ export function App(): React.JSX.Element {
   const theme = useThemeController()
   const [view, setView] = useState<AppView>(isSettingsWindow() ? 'settings' : 'launcher')
   const [tutorialOpen, setTutorialOpen] = useState(new URLSearchParams(window.location.search).get('tutorial') === '1')
+  const [runtimeItems, setRuntimeItems] = useState<LauncherItem[] | undefined>(undefined)
+
+  useEffect(() => {
+    let disposed = false
+    const updateCatalog = (catalog: LauncherCatalogPayload): void => {
+      if (!disposed) setRuntimeItems(catalog.items)
+    }
+    void window.launcher?.getCatalog?.().then(updateCatalog).catch(() => undefined)
+    const unsubscribe = window.launcher?.onCatalogChanged?.(updateCatalog)
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
 
   if (view === 'settings') {
     return <SettingsPage onOpenTutorial={() => setTutorialOpen(true)} onThemeChange={theme.setPreference} themePreference={theme.preference} tutorialOpen={tutorialOpen} />
@@ -36,7 +51,14 @@ export function App(): React.JSX.Element {
     else setView('settings')
   }
 
-  return <LauncherWindow onExecute={execute} onHide={() => void window.launcher?.hideLauncher()} onOpenSettings={openSettings} />
+  return (
+    <LauncherWindow
+      onExecute={execute}
+      onHide={() => void window.launcher?.hideLauncher()}
+      onOpenSettings={openSettings}
+      {...(runtimeItems ? { runtimeItems } : {})}
+    />
+  )
 }
 
 export { searchLauncher }

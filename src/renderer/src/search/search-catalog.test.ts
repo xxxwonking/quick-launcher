@@ -62,4 +62,20 @@ describe('searchLauncher', () => {
       }),
     ])
   })
+
+  it('searches a runtime application catalog instead of the demo applications', () => {
+    const runtimeItems = [{
+      id: 'shortcut:quark',
+      title: '夸克网盘',
+      subtitle: '应用程序',
+      hint: 'kkwp',
+      aliases: ['夸克网盘', 'kuakewangpan', 'kkwp'],
+      icon: 'folder' as const,
+      kind: 'application' as const,
+      action: { type: 'launch-indexed' as const, targetId: 'shortcut:quark' },
+    }]
+
+    expect(searchLauncher('kkwp', runtimeItems)[0]).toMatchObject({ id: 'shortcut:quark' })
+    expect(searchLauncher('cursor', runtimeItems)[0]).toMatchObject({ id: 'web:fallback' })
+  })
 })
