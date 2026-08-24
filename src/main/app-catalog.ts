@@ -1,8 +1,6 @@
-export type SearchEngine =
-  | { kind: 'bing' }
-  | { kind: 'baidu' }
-  | { kind: 'google' }
-  | { kind: 'custom'; template: string }
+import type { SearchEngine } from '../shared/launcher-settings'
+
+export type { SearchEngine } from '../shared/launcher-settings'
 
 export type ApplicationDefinition = {
   targetId: string
@@ -13,6 +11,7 @@ export type ApplicationDefinition = {
 export type ParsedExecutableAction =
   | { kind: 'application'; targetId: string }
   | { kind: 'indexed-application'; targetId: string }
+  | { kind: 'open-url'; url: string }
   | { kind: 'web-search'; query: string }
   | { kind: 'settings' }
   | { kind: 'tutorial' }
@@ -79,6 +78,9 @@ export function parseExecutableAction(value: unknown): ParsedExecutableAction | 
   }
   if (action.type === 'launch-indexed' && typeof action.targetId === 'string' && /^shortcut:[a-f0-9]{20}$/u.test(action.targetId)) {
     return { kind: 'indexed-application', targetId: action.targetId }
+  }
+  if (action.type === 'open-url' && typeof action.url === 'string' && isSafeExternalUrl(action.url)) {
+    return { kind: 'open-url', url: action.url }
   }
   if (action.type === 'web-search' && typeof action.query === 'string') {
     const query = action.query.trim()

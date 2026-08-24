@@ -14,11 +14,35 @@ describe('LauncherWindow', () => {
     const input = screen.getByRole('combobox')
 
     await user.click(input)
+    await user.type(input, 'wx')
     await user.keyboard('{ArrowDown}')
 
     expect(input).toHaveFocus()
-    expect(screen.getByRole('option', { name: /微信/ })).toHaveAttribute('aria-selected', 'true')
-    expect(input).toHaveAttribute('aria-activedescendant', 'launcher-result-app-wechat')
+    expect(screen.getByRole('option', { name: /使用必应搜索/ })).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', 'launcher-result-web-fallback')
+  })
+
+  it('scrolls the newly selected result into view when moving with arrow keys', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    render(<LauncherWindow />)
+    await user.type(screen.getByRole('combobox'), 'wx')
+    scrollIntoView.mockClear()
+
+    await user.keyboard('{ArrowDown}')
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  })
+
+  it('exposes a draggable surface without blocking interactive controls', async () => {
+    const user = userEvent.setup()
+    render(<LauncherWindow />)
+    await user.type(screen.getByRole('combobox'), 'wx')
+
+    expect(screen.getByRole('main')).toHaveClass('launcher-drag-region')
+    expect(screen.getByRole('combobox')).toHaveClass('launcher-no-drag')
+    expect(screen.getByRole('option', { name: /微信/ })).toHaveClass('launcher-no-drag')
   })
 
   it('executes a selected application with Enter and hides on Escape', async () => {

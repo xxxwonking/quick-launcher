@@ -14,6 +14,7 @@ import {
 import {
   buildSearchUrl,
   findApplicationDefinition,
+  normalizeSearchEngine,
   parseExecutableAction,
   type ParsedExecutableAction,
 } from './app-catalog'
@@ -21,29 +22,42 @@ import { registerLauncherHotkey } from './hotkey-registration'
 import { IPC_CHANNELS, parseThemePreference, type ThemePreference } from './ipc-contract'
 import { openExternalSafely, openPathSafely, resolveDevelopmentRendererUrl, shouldSimulateOsOpen } from './external-opener'
 import { createSettingsStore, type LauncherSettings } from './settings-store'
-import { createShortcutIndex, defaultShortcutRoots, scanShortcutDirectories, type ShortcutIndex } from './shortcut-index'
+import { createShortcutIndex, type ShortcutIndex } from './shortcut-index'
 import { centerLauncherInWorkArea } from './window-placement'
 import { buildIndexedApplicationCatalog } from './indexed-application-catalog'
+import { withApplicationIcons } from './application-icons'
+import { createPlatformIconLoader } from './application-icon-loader'
+import { findApplicationIconPath } from './application-icon-path'
+import { loadMacIconData } from './mac-icon-cache'
+import { scanPlatformApplications } from './platform-application-index'
+import { launcherHotkeyForPlatform } from '../shared/platform-hotkey'
+import type { LauncherSettingsPatch, LauncherSettingsSnapshot } from '../shared/launcher-settings'
+import type { LauncherItem } from '../shared/launcher-item'
+import type { UserCommand, UserCommandDraft, UserCommandPatch } from '../shared/launcher-command'
+import { createUserCommandStore } from './user-command-store'
 
 const SEARCH_WINDOW_SIZE = { width: 760, height: 560 }
 const SETTINGS_WINDOW_SIZE = { width: 960, height: 700 }
-const DEFAULT_HOTKEY = 'Alt+Space'
+const DEFAULT_HOTKEY = launcherHotkeyForPlatform(process.platform).accelerator
 const EMPTY_TRAY_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 let searchWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let settingsStore: ReturnType<typeof createSettingsStore> | null = null
+let userCommandStore: ReturnType<typeof createUserCommandStore> | null = null
+let userCommands: UserCommand[] = []
 let shortcutIndex: ShortcutIndex = createShortcutIndex([])
 let indexedCatalog = buildIndexedApplicationCatalog([], 0)
 let settings: LauncherSettings
-let requestedHotkey = DEFAULT_HOTKEY
+let requestedHotkey: string = DEFAULT_HOTKEY
 let activeHotkey: string | null = null
 let hotkeyConflict = false
 let rendererReady = false
 let focusAfterLoad = false
 let bootstrapped = false
 let searchWindowBlurTimer: ReturnType<typeof setTimeout> | null = null
+const applicationIconCache = new Map<string, string | null>()
 
 const shouldSimulateNativeLaunch = (): boolean => shouldSimulateOsOpen(process.env.QUICK_LAUNCHER_E2E, app.isPackaged)
 
@@ -96,10 +110,54 @@ function applyTheme(preference: ThemePreference): void {
   broadcastTheme()
 }
 
+function settingsSnapshot(): LauncherSettingsSnapshot {
+  return {
+    ...settings,
+    searchEngine: { ...settings.searchEngine },
+    activeHotkey,
+    hotkeyConflict,
+  }
+}
+
 function clearSearchWindowBlurTimer(): void {
   if (!searchWindowBlurTimer) return
   clearTimeout(searchWindowBlurTimer)
   searchWindowBlurTimer = null
+}
+
+async function loadMacApplicationIcon(path: string): Promise<{ toDataURL: () => string }> {
+  if (applicationIconCache.has(path)) return { toDataURL: () => applicationIconCache.get(path) ?? '' }
+
+  const iconPath = await findApplicationIconPath(path)
+  if (!iconPath) {
+    applicationIconCache.set(path, null)
+    return { toDataURL: () => '' }
+  }
+
+  const iconData = await loadMacIconData(
+    iconPath,
+    join(app.getPath('userData'), 'icon-cache'),
+    (renderablePath) => nativeImage.createFromPath(renderablePath),
+  )
+  if (!iconData) {
+    applicationIconCache.set(path, null)
+    return { toDataURL: () => '' }
+  }
+
+  applicationIconCache.set(path, iconData)
+  return { toDataURL: () => iconData }
+}
+
+function applicationIconLoader(): ((path: string, options: { size: 'normal' }) => Promise<{ toDataURL: () => string }>) | undefined {
+  if (process.platform === 'darwin') return loadMacApplicationIcon
+  if (typeof app.getFileIcon !== 'function') return undefined
+  return createPlatformIconLoader(
+    process.platform,
+    (path, options) => app.getFileIcon(path, options),
+    process.platform === 'win32' && typeof shell.readShortcutLink === 'function'
+      ? (path) => shell.readShortcutLink(path)
+      : undefined,
+  )
 }
 
 function createSearchWindow(): BrowserWindow {
@@ -180,6 +238,7 @@ function createSettingsWindow(tutorial: boolean): BrowserWindow {
 function requestRendererFocus(): void {
   clearSearchWindowBlurTimer()
   if (!searchWindow || searchWindow.isDestroyed()) return
+  if (settingsWindow && !settingsWindow.isDestroyed() && typeof settingsWindow.isVisible === 'function' && settingsWindow.isVisible()) return
   if (!rendererReady) {
     focusAfterLoad = true
     return
@@ -193,6 +252,7 @@ function requestRendererFocus(): void {
 
 function showLauncher(): void {
   clearSearchWindowBlurTimer()
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.hide()
   const window = createSearchWindow()
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
@@ -209,10 +269,13 @@ function hideLauncher(): void {
 }
 
 function openSettings(tutorial = false): void {
+  clearSearchWindowBlurTimer()
+  focusAfterLoad = false
   hideLauncher()
   const window = createSettingsWindow(tutorial)
   window.show()
   window.focus()
+  hideLauncher()
 }
 
 async function launchApplication(targetId: string): Promise<string> {
@@ -249,6 +312,14 @@ async function executeParsedAction(action: ParsedExecutableAction): Promise<stri
     openSettings(true)
     return '正在打开教程'
   }
+  if (action.kind === 'open-url') {
+    const opened = await openExternalSafely(action.url, (url) => shell.openExternal(url), shouldSimulateNativeLaunch())
+    if (opened) {
+      hideLauncher()
+      return '正在打开网页'
+    }
+    return '浏览器打开失败，请检查默认浏览器设置'
+  }
   const opened = await openExternalSafely(
     buildSearchUrl(settings.searchEngine, action.query),
     (url) => shell.openExternal(url),
@@ -268,15 +339,110 @@ async function executeItem(value: unknown): Promise<string> {
 }
 
 async function refreshApplications(): Promise<{ count: number }> {
-  shortcutIndex = await scanShortcutDirectories(defaultShortcutRoots(app.getPath('desktop')))
-  indexedCatalog = buildIndexedApplicationCatalog(shortcutIndex.entries, indexedCatalog.payload.snapshotVersion + 1)
+  shortcutIndex = await scanPlatformApplications(process.platform, app.getPath('desktop'))
+  const indexed = buildIndexedApplicationCatalog(shortcutIndex.entries, indexedCatalog.payload.snapshotVersion + 1)
+  const indexedWithIcons = await withApplicationIcons(
+    indexed.payload,
+    indexed.targets,
+    applicationIconLoader(),
+  )
+  const commandItems: LauncherItem[] = userCommands.filter((command) => command.enabled).map((command) => ({
+    id: `command:${command.id}`,
+    title: command.title,
+    subtitle: command.type === 'open-url' ? '固定网址' : '网页搜索',
+    aliases: [command.keyword],
+    icon: 'globe',
+    kind: 'command',
+    action: command.type === 'open-url' ? { type: 'open-url', url: command.target } : { type: 'web-search', query: command.target },
+  }))
+  indexedCatalog = {
+    payload: { ...indexedWithIcons, items: [...indexedWithIcons.items, ...commandItems] },
+    targets: indexed.targets,
+  }
   broadcastCatalog()
   return { count: indexedCatalog.payload.items.length }
 }
 
-function configureAutostart(enabled: boolean): void {
-  if (typeof app.setLoginItemSettings !== 'function') return
-  app.setLoginItemSettings({ openAtLogin: enabled })
+function configureAutostart(enabled: boolean): boolean {
+  if (typeof app.setLoginItemSettings !== 'function') return true
+  if (process.platform === 'darwin' && !app.isPackaged) return true
+  try {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+    return true
+  } catch (error) {
+    console.warn('[launcher] unable to configure autostart', error)
+    return false
+  }
+}
+
+function parseSettingsPatch(value: unknown): LauncherSettingsPatch {
+  if (typeof value !== 'object' || value === null) throw new Error('INVALID_SETTINGS')
+  const record = value as Record<string, unknown>
+  const patch: LauncherSettingsPatch = {}
+  if (record.hotkey !== undefined) {
+    if (typeof record.hotkey !== 'string' || record.hotkey.length < 1 || record.hotkey.length > 64) throw new Error('INVALID_HOTKEY')
+    patch.hotkey = record.hotkey
+  }
+  if (record.autostart !== undefined) {
+    if (typeof record.autostart !== 'boolean') throw new Error('INVALID_AUTOSTART')
+    patch.autostart = record.autostart
+  }
+  if (record.showRecent !== undefined) {
+    if (typeof record.showRecent !== 'boolean') throw new Error('INVALID_SHOW_RECENT')
+    patch.showRecent = record.showRecent
+  }
+  if (record.theme !== undefined) {
+    const preference = parseThemePreference(record.theme)
+    if (!preference) throw new Error('INVALID_THEME')
+    patch.theme = preference
+  }
+  if (record.searchEngine !== undefined) {
+    if (typeof record.searchEngine !== 'object' || record.searchEngine === null) throw new Error('INVALID_SEARCH_ENGINE')
+    const engine = record.searchEngine as Record<string, unknown>
+    if (engine.kind === 'bing' || engine.kind === 'baidu' || engine.kind === 'google') patch.searchEngine = { kind: engine.kind }
+    else if (engine.kind === 'custom' && typeof engine.template === 'string') {
+      const normalized = normalizeSearchEngine(engine)
+      if (normalized.kind !== 'custom') throw new Error('INVALID_SEARCH_ENGINE')
+      patch.searchEngine = normalized
+    }
+    else throw new Error('INVALID_SEARCH_ENGINE')
+  }
+  return patch
+}
+
+async function updateSettings(patch: LauncherSettingsPatch): Promise<LauncherSettingsSnapshot> {
+  if (!settingsStore) throw new Error('SETTINGS_UNAVAILABLE')
+  const previousSettings = settings
+  const previousHotkey = requestedHotkey
+  const previousConflict = hotkeyConflict
+  const previousActive = activeHotkey
+  const restoreHotkey = (): void => {
+    requestedHotkey = previousHotkey
+    activeHotkey = previousActive
+    hotkeyConflict = previousConflict
+    registerGlobalHotkey()
+  }
+  if (patch.hotkey !== undefined && patch.hotkey !== requestedHotkey) {
+    requestedHotkey = patch.hotkey
+    registerGlobalHotkey()
+    if (hotkeyConflict) {
+      restoreHotkey()
+      throw new Error('HOTKEY_CONFLICT')
+    }
+  }
+  if (patch.autostart !== undefined && !configureAutostart(patch.autostart)) {
+    restoreHotkey()
+    throw new Error('AUTOSTART_FAILED')
+  }
+  try {
+    settings = await settingsStore.update(patch)
+  } catch (error) {
+    restoreHotkey()
+    if (patch.autostart !== undefined && patch.autostart !== previousSettings.autostart) configureAutostart(previousSettings.autostart)
+    throw error
+  }
+  if (patch.theme !== undefined) applyTheme(settings.theme)
+  return settingsSnapshot()
 }
 
 function registerIpc(): void {
@@ -289,6 +455,36 @@ function registerIpc(): void {
     if (!preference || !settingsStore) throw new Error('INVALID_THEME')
     settings = await settingsStore.update({ theme: preference })
     applyTheme(preference)
+  })
+  ipcMainHandle(IPC_CHANNELS.getSettings, async () => settingsSnapshot())
+  ipcMainHandle(IPC_CHANNELS.updateSettings, async (value: unknown) => updateSettings(parseSettingsPatch(value)))
+  ipcMainHandle(IPC_CHANNELS.getCommands, async () => userCommands.map((command) => ({ ...command })))
+  ipcMainHandle(IPC_CHANNELS.createCommand, async (value: unknown) => {
+    if (!userCommandStore || typeof value !== 'object' || value === null) throw new Error('INVALID_COMMAND')
+    const command = await userCommandStore.create(value as UserCommandDraft)
+    userCommands = userCommandStore.get()
+    await refreshApplications()
+    return command
+  })
+  ipcMainHandle(IPC_CHANNELS.updateCommand, async (id: unknown, patch: unknown) => {
+    if (!userCommandStore || typeof id !== 'string' || typeof patch !== 'object' || patch === null) throw new Error('INVALID_COMMAND')
+    const command = await userCommandStore.update(id, patch as UserCommandPatch)
+    userCommands = userCommandStore.get()
+    await refreshApplications()
+    return command
+  })
+  ipcMainHandle(IPC_CHANNELS.setCommandEnabled, async (id: unknown, enabled: unknown) => {
+    if (!userCommandStore || typeof id !== 'string' || typeof enabled !== 'boolean') throw new Error('INVALID_COMMAND')
+    const command = await userCommandStore.setEnabled(id, enabled)
+    userCommands = userCommandStore.get()
+    await refreshApplications()
+    return command
+  })
+  ipcMainHandle(IPC_CHANNELS.deleteCommand, async (id: unknown) => {
+    if (!userCommandStore || typeof id !== 'string') throw new Error('INVALID_COMMAND')
+    await userCommandStore.remove(id)
+    userCommands = userCommandStore.get()
+    await refreshApplications()
   })
   ipcMainHandle(IPC_CHANNELS.execute, async (value: unknown) => executeItem(value))
   ipcMainHandle(IPC_CHANNELS.refreshApplications, async () => refreshApplications())
@@ -333,6 +529,8 @@ async function bootstrap(): Promise<void> {
   if (process.platform === 'win32') app.setAppUserModelId('com.quicklauncher.desktop')
   settingsStore = createSettingsStore(join(app.getPath('userData'), 'settings.json'))
   settings = await settingsStore.load()
+  userCommandStore = createUserCommandStore(join(app.getPath('userData'), 'user.json'))
+  userCommands = await userCommandStore.load()
   requestedHotkey = settings.hotkey || DEFAULT_HOTKEY
   nativeTheme.themeSource = settings.theme
   configureAutostart(settings.autostart)

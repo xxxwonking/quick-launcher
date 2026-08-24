@@ -8,18 +8,18 @@ type SearchInputProps = {
   onChange: (value: string) => void
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
 }
-
 export function SearchInput({ value, inputRef, activeDescendant, onChange, onKeyDown }: SearchInputProps): React.JSX.Element {
   return (
-    <div className="flex h-[76px] items-center gap-4 border-b border-divider px-5" data-tour="launcher-search">
-      <Search aria-hidden="true" className="size-7 shrink-0 text-secondary" strokeWidth={1.8} />
+    <div className="flex h-[76px] items-center gap-4 border-b border-divider px-6 transition-colors duration-200" data-tour="launcher-search">
+      <Search aria-hidden="true" className={`size-7 shrink-0 transition-colors duration-200 ${value ? 'text-accent' : 'text-secondary'}`} strokeWidth={2} />
       <input
         ref={inputRef}
         autoFocus
         aria-activedescendant={activeDescendant}
         aria-autocomplete="list"
         aria-controls="launcher-results"
-        className="min-w-0 flex-1 bg-transparent text-[25px] font-medium tracking-tight text-primary outline-none placeholder:text-muted"
+        className="launcher-no-drag min-w-0 flex-1 bg-transparent text-[24px] font-semibold tracking-tight text-primary outline-none placeholder:text-muted"
+
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder="输入应用、拼音、命令…"
@@ -30,16 +30,16 @@ export function SearchInput({ value, inputRef, activeDescendant, onChange, onKey
       {value ? (
         <button
           aria-label="清空搜索"
-          className="grid size-8 place-items-center rounded-lg text-secondary transition hover:bg-hover hover:text-primary"
+          className="launcher-no-drag grid size-7 place-items-center rounded-full text-secondary transition-all hover:bg-chip hover:text-primary active:scale-90"
           onClick={() => onChange('')}
           type="button"
         >
           <X aria-hidden="true" className="size-4" />
         </button>
       ) : null}
-      <span className="rounded-md border border-divider bg-chip px-2 py-1 text-[11px] font-semibold tracking-wide text-secondary">
+      <kbd className="px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase">
         COMMAND
-      </span>
+      </kbd>
     </div>
   )
 }

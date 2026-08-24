@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { searchLauncher, type LauncherItem } from '../search/search-catalog'
+import { searchLauncher, type LauncherItem, type SearchDisplayOptions } from '../search/search-catalog'
 
 export type SearchResponse = {
   queryId: number
@@ -17,9 +17,9 @@ type SearchState = {
   snapshotVersion: number
 }
 
-export function useLauncherSearch(query: string, provider?: SearchProvider | undefined, runtimeItems?: readonly LauncherItem[]): SearchState {
+export function useLauncherSearch(query: string, provider?: SearchProvider | undefined, runtimeItems?: readonly LauncherItem[], options?: SearchDisplayOptions): SearchState {
   const latestQueryId = useRef(0)
-  const localItems = useMemo(() => searchLauncher(query, runtimeItems), [query, runtimeItems])
+  const localItems = useMemo(() => searchLauncher(query, runtimeItems, options), [query, runtimeItems, options])
   const [state, setState] = useState<SearchState>(() => ({
     items: localItems,
     loading: false,

@@ -2,14 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { searchLauncher } from './search-catalog'
 
 describe('searchLauncher', () => {
-  it('keeps the curated applications in a stable default order', () => {
-    expect(searchLauncher('').map((item) => item.id)).toEqual([
-      'app:vscode',
-      'app:wechat',
-      'app:cursor',
-      'app:system-info',
-      'app:projects',
-    ])
+  it('keeps the default search list empty', () => {
+    expect(searchLauncher('')).toEqual([])
+  })
+
+  it('shows only configured recent items when recent usage is enabled', () => {
+    const recentItems = [{
+      id: 'app:cursor',
+      title: 'Cursor',
+      subtitle: '应用程序',
+      aliases: ['cursor'],
+      icon: 'code' as const,
+      kind: 'application' as const,
+      action: { type: 'launch-demo' as const, targetId: 'cursor' },
+    }]
+
+    expect(searchLauncher('', undefined, { showRecent: true, recentItems })).toEqual(recentItems)
   })
 
   it('ranks an exact alias ahead of the web fallback', () => {

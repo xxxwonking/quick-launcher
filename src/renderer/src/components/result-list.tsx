@@ -10,6 +10,8 @@ type ResultListProps = {
 }
 
 export function ResultList({ items, selectedIndex, onSelect, onExecute }: ResultListProps): React.JSX.Element {
+  if (items.length === 0) return <></>
+
   return (
     <div className="max-h-[410px] overflow-y-auto px-2.5 py-2.5" data-tour="launcher-results" id="launcher-results" role="listbox">
       {items.map((item, index) => (

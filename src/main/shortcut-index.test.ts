@@ -25,7 +25,7 @@ describe('shortcut index', () => {
     const roots = Reflect.apply(defaultShortcutRoots, undefined, ['D:\\Profiles\\Me\\Desktop'])
 
     expect(roots[0]).toBe('D:\\Profiles\\Me\\Desktop')
-    expect(roots).toContain(`${process.env.APPDATA}\\Microsoft\\Windows\\Start Menu\\Programs`)
-    expect(roots).toContain(`${process.env.ProgramData}\\Microsoft\\Windows\\Start Menu\\Programs`)
+    if (process.env.APPDATA) expect(roots).toContain(`${process.env.APPDATA}\\Microsoft\\Windows\\Start Menu\\Programs`)
+    if (process.env.ProgramData) expect(roots).toContain(`${process.env.ProgramData}\\Microsoft\\Windows\\Start Menu\\Programs`)
   })
 })

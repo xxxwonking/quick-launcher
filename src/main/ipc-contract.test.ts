@@ -16,6 +16,13 @@ describe('launcher IPC contract', () => {
       'launcher:get-hotkey-status',
       'launcher:get-catalog',
       'launcher:catalog-changed',
+      'launcher:get-settings',
+      'launcher:update-settings',
+      'launcher:get-commands',
+      'launcher:create-command',
+      'launcher:update-command',
+      'launcher:set-command-enabled',
+      'launcher:delete-command',
     ])
   })
 

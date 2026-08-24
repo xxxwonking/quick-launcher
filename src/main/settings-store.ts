@@ -1,22 +1,15 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { normalizeSearchEngine, type SearchEngine } from './app-catalog'
+import { normalizeSearchEngine } from './app-catalog'
+import type { LauncherSettings, LauncherSettingsPatch, SearchEngine } from '../shared/launcher-settings'
 
-export type ThemePreference = 'system' | 'light' | 'dark'
-
-export type LauncherSettings = {
-  schemaVersion: 1
-  hotkey: string
-  autostart: boolean
-  theme: ThemePreference
-  searchEngine: SearchEngine
-}
-export type LauncherSettingsPatch = Partial<Pick<LauncherSettings, 'hotkey' | 'autostart' | 'theme' | 'searchEngine'>>
+export type { LauncherSettings, LauncherSettingsPatch, ThemePreference } from '../shared/launcher-settings'
 
 export const DEFAULT_SETTINGS: LauncherSettings = {
   schemaVersion: 1,
   hotkey: 'Alt+Space',
   autostart: false,
+  showRecent: false,
   theme: 'system',
   searchEngine: { kind: 'bing' },
 }
@@ -36,10 +29,12 @@ export function parsePersistedSettings(value: unknown): LauncherSettings {
   const theme = value.theme === 'light' || value.theme === 'dark' || value.theme === 'system' ? value.theme : DEFAULT_SETTINGS.theme
   const hotkey = isSafeHotkey(value.hotkey) ? value.hotkey : DEFAULT_SETTINGS.hotkey
   const autostart = typeof value.autostart === 'boolean' ? value.autostart : DEFAULT_SETTINGS.autostart
+  const showRecent = typeof value.showRecent === 'boolean' ? value.showRecent : DEFAULT_SETTINGS.showRecent
   return {
     schemaVersion: 1,
     hotkey,
     autostart,
+    showRecent,
     theme,
     searchEngine: normalizeSearchEngine(value.searchEngine),
   }
@@ -83,8 +78,9 @@ export function createSettingsStore(filePath: string): {
 
   const update = async (patch: LauncherSettingsPatch): Promise<LauncherSettings> => {
     const next = parsePersistedSettings({ ...current, ...patch, schemaVersion: 1 })
-    writeQueue = writeQueue.then(() => save(next))
-    await writeQueue
+    const pendingWrite = writeQueue.catch(() => undefined).then(() => save(next))
+    writeQueue = pendingWrite
+    await pendingWrite
     return { ...current, searchEngine: { ...current.searchEngine } }
   }
 

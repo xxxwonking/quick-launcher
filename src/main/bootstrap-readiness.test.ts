@@ -1,4 +1,13 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+
+const originalPlatform = process.platform
+beforeAll(() => {
+  Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+})
+
+afterAll(() => {
+  Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+})
 
 const bootstrapState = vi.hoisted(() => {
   let resolveScan: ((value: { entries: readonly []; find: () => undefined }) => void) | undefined
@@ -110,6 +119,17 @@ vi.mock('./settings-store', () => ({
       searchEngine: { kind: 'bing' },
     }),
     update: vi.fn(),
+  })),
+}))
+
+vi.mock('./user-command-store', () => ({
+  createUserCommandStore: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockReturnValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    setEnabled: vi.fn(),
+    remove: vi.fn(),
   })),
 }))
 

@@ -4,6 +4,11 @@ export type { LaunchAction, LauncherIcon, LauncherItem } from '../../../shared/l
 
 type SearchCandidate = LauncherItem & { score: number; order: number }
 
+export type SearchDisplayOptions = {
+  showRecent?: boolean
+  recentItems?: readonly LauncherItem[]
+}
+
 const APPLICATIONS: LauncherItem[] = [
   {
     id: 'app:vscode',
@@ -105,10 +110,10 @@ const makeWebFallback = (query: string): LauncherItem => ({
   disabled: false,
 })
 
-export function searchLauncher(rawQuery: string, runtimeItems?: readonly LauncherItem[]): LauncherItem[] {
+export function searchLauncher(rawQuery: string, runtimeItems?: readonly LauncherItem[], options: SearchDisplayOptions = {}): LauncherItem[] {
   const query = rawQuery.trim()
   const applications = runtimeItems ?? APPLICATIONS
-  if (!query) return applications.slice(0, 8)
+  if (!query) return options.showRecent ? (options.recentItems ?? []).slice(0, 8) : []
 
   const commandMatch = query.match(/^llq(?:\s+(.+))?$/iu)
   if (commandMatch) {

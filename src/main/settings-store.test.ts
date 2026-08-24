@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,7 @@ describe('settings store', () => {
       searchEngine: { kind: 'bing' },
       hotkey: 'Alt+Space',
       autostart: false,
+      showRecent: false,
     })
   })
 
@@ -28,9 +29,23 @@ describe('settings store', () => {
     const store = createSettingsStore(filePath)
 
     await store.load()
-    await store.update({ theme: 'dark', searchEngine: { kind: 'google' }, autostart: true })
+    await store.update({ theme: 'dark', searchEngine: { kind: 'google' }, autostart: true, showRecent: true })
 
-    expect(await createSettingsStore(filePath).load()).toMatchObject({ theme: 'dark', searchEngine: { kind: 'google' }, autostart: true })
+    expect(await createSettingsStore(filePath).load()).toMatchObject({ theme: 'dark', searchEngine: { kind: 'google' }, autostart: true, showRecent: true })
     expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({ schemaVersion: 1, theme: 'dark' })
+  })
+
+  it('recovers the write queue after a failed save', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-settings-'))
+    temporaryDirectories.push(directory)
+    const filePath = join(directory, 'settings.json')
+    await mkdir(filePath)
+    const store = createSettingsStore(filePath)
+
+    await expect(store.update({ theme: 'dark' })).rejects.toThrow()
+    await rm(filePath, { recursive: true, force: true })
+
+    await expect(store.update({ showRecent: true })).resolves.toMatchObject({ showRecent: true })
+    expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({ showRecent: true })
   })
 })

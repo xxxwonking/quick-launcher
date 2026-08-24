@@ -3,6 +3,7 @@ export type LaunchAction =
   | { type: 'launch-indexed'; targetId: string }
   | { type: 'open-settings' }
   | { type: 'open-tutorial' }
+  | { type: 'open-url'; url: string }
   | { type: 'web-search'; query: string }
 
 export type LauncherIcon = 'code' | 'message' | 'terminal' | 'folder' | 'settings' | 'book' | 'globe'
@@ -14,6 +15,7 @@ export type LauncherItem = {
   hint?: string
   aliases: string[]
   icon: LauncherIcon
+  iconData?: string
   kind: 'application' | 'command' | 'builtin' | 'web'
   action: LaunchAction
   disabled?: boolean

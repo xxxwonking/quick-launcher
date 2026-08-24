@@ -18,8 +18,15 @@ type ResultRowProps = {
   onSelect: (index: number) => void
   onExecute: (item: LauncherItem) => void
 }
-
 export const resultDomId = (item: LauncherItem): string => `launcher-result-${item.id.replace(/[^A-Za-z0-9_-]/g, '-')}`
+
+function iconStyleForKind(kind: LauncherItem['kind']): string {
+  if (kind === 'web') return 'bg-zinc-500/10 border-zinc-500/20 text-zinc-700 dark:text-zinc-300 shadow-sm'
+  if (kind === 'builtin') return 'bg-slate-500/10 border-slate-500/20 text-slate-700 dark:text-slate-300 shadow-sm'
+  if (kind === 'command') return 'bg-neutral-500/10 border-neutral-500/20 text-neutral-700 dark:text-neutral-300 shadow-sm'
+  return 'bg-icon border-window text-icon-foreground shadow-sm'
+}
+
 
 export function ResultRow({ item, index, selected, onSelect, onExecute }: ResultRowProps): React.JSX.Element {
   const Icon = ICONS[item.icon]
@@ -28,28 +35,28 @@ export function ResultRow({ item, index, selected, onSelect, onExecute }: Result
       aria-disabled={item.disabled ?? false}
       aria-label={`${item.title} ${item.subtitle}`}
       aria-selected={selected}
-      className="group relative flex h-[66px] cursor-default items-center gap-3 rounded-xl border px-3 transition-colors duration-100"
+      className="launcher-no-drag group relative flex h-[66px] cursor-default items-center gap-3.5 rounded-xl border px-3.5 transition-all duration-150"
       data-selected={selected ? 'true' : 'false'}
       id={resultDomId(item)}
       onClick={() => onSelect(index)}
       onDoubleClick={() => onExecute(item)}
       role="option"
     >
-      <span className="selection-indicator absolute inset-y-3 left-0 w-[3px] rounded-full bg-accent opacity-0" />
-      <span className={`grid size-10 shrink-0 place-items-center rounded-[11px] border border-white/15 shadow-sm ${item.kind === 'web' ? 'bg-accent/15 text-accent' : 'bg-icon text-icon-foreground'}`}>
-        <Icon aria-hidden="true" className="size-5" strokeWidth={1.9} />
+      <span className="selection-indicator absolute inset-y-2.5 left-0 w-[3.5px] rounded-r-full bg-accent opacity-0 transition-opacity duration-150" />
+      <span className={`grid size-10 shrink-0 place-items-center rounded-[12px] border ${iconStyleForKind(item.kind)}`}>
+        {item.iconData ? <img alt={`${item.title} 图标`} className="size-7 rounded-md object-contain" src={item.iconData} /> : <Icon aria-hidden="true" className="size-5" strokeWidth={2} />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[16px] font-semibold leading-5 text-primary">{item.title}</span>
-        <span className="mt-1 flex items-center gap-2 text-[12px] leading-4 text-secondary">
-          <span>{item.subtitle}</span>
-          {item.hint ? <span className="text-muted">{item.hint}</span> : null}
+        <span className="block truncate text-[15px] font-semibold leading-5 text-primary tracking-tight">{item.title}</span>
+        <span className="mt-0.5 flex items-center gap-2 text-[12px] leading-4 text-secondary">
+          <span className="truncate">{item.subtitle}</span>
+          {item.hint ? <span className="shrink-0 text-muted">{item.hint}</span> : null}
         </span>
       </span>
-      <span className="rounded-md border border-divider bg-chip px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-secondary">
-        {item.kind === 'web' ? 'WEB' : item.kind === 'builtin' ? 'SYSTEM' : 'APP'}
+      <span className="rounded-md border border-divider bg-chip px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-secondary">
+        {item.kind === 'web' ? 'WEB' : item.kind === 'builtin' ? 'SYSTEM' : item.kind === 'command' ? 'COMMAND' : 'APP'}
       </span>
-      {selected ? <span aria-hidden="true" className="pr-1 text-lg text-accent">↵</span> : null}
+      {selected ? <span aria-hidden="true" className="pr-1 text-sm font-bold text-accent">↵</span> : null}
     </div>
   )
 }

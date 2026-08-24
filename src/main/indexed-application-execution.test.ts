@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const originalPlatform = process.platform
+
 const indexedShortcut = {
   displayName: 'Cursor.lnk',
   path: 'C:\\Start\\Cursor.lnk',
@@ -9,7 +11,9 @@ const electronState = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>()
   const windows: Array<{
     hide: ReturnType<typeof vi.fn>
+    show: ReturnType<typeof vi.fn>
     webContents: { send: ReturnType<typeof vi.fn> }
+    windowEvents: Map<string, () => void>
   }> = []
   const state: {
     readyCallback?: () => Promise<void>
@@ -21,6 +25,7 @@ const electronState = vi.hoisted(() => {
     spawn: ReturnType<typeof vi.fn>
     BrowserWindow: ReturnType<typeof vi.fn>
     trayTemplate: Array<{ label?: string; click?: () => void }>
+    launcherHotkey?: () => void
   } = {
     handlers,
     windows,
@@ -39,6 +44,7 @@ const electronState = vi.hoisted(() => {
       return child
     }),
     BrowserWindow: vi.fn(function BrowserWindow() {
+      const windowEvents = new Map<string, () => void>()
       const window = {
         hide: vi.fn(),
         show: vi.fn(),
@@ -47,9 +53,10 @@ const electronState = vi.hoisted(() => {
         isFocused: vi.fn().mockReturnValue(false),
         loadFile: vi.fn().mockResolvedValue(undefined),
         loadURL: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn(),
+        on: vi.fn((event: string, handler: () => void) => windowEvents.set(event, handler)),
         setAlwaysOnTop: vi.fn(),
         setPosition: vi.fn(),
+        windowEvents,
         webContents: {
           executeJavaScript: vi.fn().mockResolvedValue(undefined),
           on: vi.fn(),
@@ -86,7 +93,10 @@ vi.mock('electron', () => ({
   },
   BrowserWindow: electronState.BrowserWindow,
   globalShortcut: {
-    register: vi.fn().mockReturnValue(true),
+    register: vi.fn((_accelerator: string, callback: () => void) => {
+      electronState.launcherHotkey = callback
+      return true
+    }),
     unregisterAll: vi.fn(),
   },
   ipcMain: {
@@ -138,6 +148,17 @@ vi.mock('./settings-store', () => ({
   })),
 }))
 
+vi.mock('./user-command-store', () => ({
+  createUserCommandStore: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockReturnValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    setEnabled: vi.fn(),
+    remove: vi.fn(),
+  })),
+}))
+
 vi.mock('./shortcut-index', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./shortcut-index')>()
   return {
@@ -156,6 +177,7 @@ describe('indexed application execution', () => {
   const originalE2eMode = process.env.QUICK_LAUNCHER_E2E
 
   beforeAll(async () => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     await import('./index')
     if (!electronState.readyCallback) throw new Error('Electron bootstrap was not registered')
     await electronState.readyCallback()
@@ -171,6 +193,7 @@ describe('indexed application execution', () => {
   })
 
   afterAll(() => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
     if (originalE2eMode === undefined) delete process.env.QUICK_LAUNCHER_E2E
     else process.env.QUICK_LAUNCHER_E2E = originalE2eMode
   })
@@ -291,5 +314,33 @@ describe('indexed application execution', () => {
       'launcher:catalog-changed',
       expect.objectContaining({ snapshotVersion: expect.any(Number), items: expect.any(Array) }),
     ))
+  })
+
+  it('cancels a pending launcher focus when settings opens', async () => {
+    const searchWindow = electronState.windows[0]
+    if (!searchWindow) throw new Error('Search window was not created')
+
+    electronState.launcherHotkey?.()
+    await invoke('launcher:open-settings')
+    searchWindow.show.mockClear()
+    searchWindow.windowEvents.get('did-finish-load')?.()
+
+    expect(searchWindow.show).not.toHaveBeenCalled()
+  })
+
+  it('keeps the settings and search windows mutually exclusive', async () => {
+    const searchWindow = electronState.windows[0]
+    if (!searchWindow) throw new Error('Search window was not created')
+
+    await invoke('launcher:open-settings')
+    const settingsWindow = electronState.windows[1]
+    if (!settingsWindow) throw new Error('Settings window was not created')
+    searchWindow.hide.mockClear()
+    settingsWindow.hide.mockClear()
+
+    electronState.launcherHotkey?.()
+
+    expect(settingsWindow.hide).toHaveBeenCalledOnce()
+    expect(searchWindow.show).toHaveBeenCalled()
   })
 })

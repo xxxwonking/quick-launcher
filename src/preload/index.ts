@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type ThemePreference } from '../shared/launcher-ipc'
+import {
+  IPC_CHANNELS,
+  type LauncherSettingsPatch,
+  type LauncherSettingsSnapshot,
+  type ThemePreference,
+  type UserCommand,
+  type UserCommandDraft,
+  type UserCommandPatch,
+} from '../shared/launcher-ipc'
 import type { LauncherCatalogPayload } from '../shared/launcher-item'
 
 type ThemePayload = { preference: ThemePreference; resolved: 'light' | 'dark' }
@@ -24,6 +32,13 @@ const launcherApi = {
   refreshApplications: (): Promise<{ count: number }> => ipcRenderer.invoke(IPC_CHANNELS.refreshApplications) as Promise<{ count: number }>,
   getHotkeyStatus: (): Promise<{ requested: string; active: string | null; conflict: boolean }> => ipcRenderer.invoke(IPC_CHANNELS.getHotkeyStatus) as Promise<{ requested: string; active: string | null; conflict: boolean }>,
   getCatalog: (): Promise<LauncherCatalogPayload> => ipcRenderer.invoke(IPC_CHANNELS.getCatalog) as Promise<LauncherCatalogPayload>,
+  getSettings: (): Promise<LauncherSettingsSnapshot> => ipcRenderer.invoke(IPC_CHANNELS.getSettings) as Promise<LauncherSettingsSnapshot>,
+  updateSettings: (patch: LauncherSettingsPatch): Promise<LauncherSettingsSnapshot> => ipcRenderer.invoke(IPC_CHANNELS.updateSettings, patch) as Promise<LauncherSettingsSnapshot>,
+  getCommands: (): Promise<UserCommand[]> => ipcRenderer.invoke(IPC_CHANNELS.getCommands) as Promise<UserCommand[]>,
+  createCommand: (draft: UserCommandDraft): Promise<UserCommand> => ipcRenderer.invoke(IPC_CHANNELS.createCommand, draft) as Promise<UserCommand>,
+  updateCommand: (id: string, patch: UserCommandPatch): Promise<UserCommand> => ipcRenderer.invoke(IPC_CHANNELS.updateCommand, id, patch) as Promise<UserCommand>,
+  setCommandEnabled: (id: string, enabled: boolean): Promise<UserCommand> => ipcRenderer.invoke(IPC_CHANNELS.setCommandEnabled, id, enabled) as Promise<UserCommand>,
+  deleteCommand: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.deleteCommand, id) as Promise<void>,
   onCatalogChanged: (listener: (catalog: LauncherCatalogPayload) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, catalog: LauncherCatalogPayload): void => listener(catalog)
     ipcRenderer.on(IPC_CHANNELS.catalogChanged, handler)

@@ -31,6 +31,8 @@ describe('app catalog helpers', () => {
     expect(parseExecutableAction({ id: 'shortcut:quark', action: { type: 'launch-indexed', targetId: 'shortcut:0123456789abcdef0123' } })).toEqual({ kind: 'indexed-application', targetId: 'shortcut:0123456789abcdef0123' })
     expect(parseExecutableAction({ id: 'web:fallback', action: { type: 'web-search', query: '抖音' } })).toEqual({ kind: 'web-search', query: '抖音' })
     expect(parseExecutableAction({ id: 'web:fallback', action: { type: 'web-search', query: 'x\u0000y' } })).toBeUndefined()
+    expect(parseExecutableAction({ id: 'command:docs', action: { type: 'open-url', url: 'https://example.com/docs' } })).toEqual({ kind: 'open-url', url: 'https://example.com/docs' })
+    expect(parseExecutableAction({ id: 'command:unsafe', action: { type: 'open-url', url: 'file:///tmp/secret' } })).toBeUndefined()
   })
 
   it('keeps the search engine union narrow at runtime', () => {
