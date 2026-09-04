@@ -59,7 +59,7 @@ import { createUserCommandStore } from './user-command-store'
 import { buildFileLauncherCatalog, createIncrementalFileIndex, effectiveFileSearchRoots, isFileLauncherItem, scanFileIndex, type FileIndexEntry, type IncrementalFileIndex } from './file-index'
 import { createGeneratedUrlRegistry } from './generated-url-registry'
 import { createApplicationIndexWatcher, type ApplicationIndexWatcher, type ApplicationWatchChange } from './application-index-watcher'
-import { adaptTrayIconForPlatform, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
+import { prepareTrayIconForPlatform, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
 import { findCommandPackagePath } from './command-package-path'
 import {
   normalizeSearchWindowHeight,
@@ -1388,12 +1388,11 @@ function createTray(): void {
     if (iconPath && typeof nativeImage.createFromPath === 'function') {
       try {
         const loadedIcon = nativeImage.createFromPath(iconPath)
-        if (!loadedIcon.isEmpty()) icon = adaptTrayIconForPlatform(process.platform, loadedIcon)
+        if (!loadedIcon.isEmpty()) icon = prepareTrayIconForPlatform(process.platform, loadedIcon)
       } catch {
         // Keep the tiny transparent fallback if the optional tray asset cannot be decoded.
       }
     }
-    if (process.platform === 'darwin' && typeof icon.setTemplateImage === 'function') icon.setTemplateImage(true)
     tray = new Tray(icon)
     tray.setToolTip('Quick Launcher')
     tray.setContextMenu(Menu.buildFromTemplate([

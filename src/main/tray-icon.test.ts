@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { adaptTrayIconForPlatform, MACOS_TRAY_ICON_SIZE, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
+import { adaptTrayIconForPlatform, MACOS_TRAY_ICON_SIZE, prepareTrayIconForPlatform, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
 
 describe('tray icon resolution', () => {
   it('prefers the packaged extra resource before the development asset', () => {
@@ -36,5 +36,20 @@ describe('tray icon resolution', () => {
 
     expect(adaptTrayIconForPlatform('win32', icon)).toBe(icon)
     expect(adaptTrayIconForPlatform('darwin', icon)).toBe(icon)
+  })
+
+  it('keeps the full-color application icon on macOS instead of using template rendering', () => {
+    const resizedIcon = {
+      isEmpty: () => false,
+      setTemplateImage: vi.fn(),
+    }
+    const icon = {
+      isEmpty: () => false,
+      resize: vi.fn().mockReturnValue(resizedIcon),
+      setTemplateImage: vi.fn(),
+    }
+
+    expect(prepareTrayIconForPlatform('darwin', icon)).toBe(resizedIcon)
+    expect(resizedIcon.setTemplateImage).toHaveBeenCalledWith(false)
   })
 })

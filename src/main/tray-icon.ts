@@ -5,6 +5,7 @@ export const MACOS_TRAY_ICON_SIZE = 18
 export type TrayIconImage = {
   isEmpty: () => boolean
   resize: (options: { width: number; height: number }) => unknown
+  setTemplateImage?: (isTemplate: boolean) => void
 }
 
 export function adaptTrayIconForPlatform<T extends TrayIconImage>(platform: string, icon: T): T {
@@ -16,6 +17,12 @@ export function adaptTrayIconForPlatform<T extends TrayIconImage>(platform: stri
   } catch {
     return icon
   }
+}
+
+export function prepareTrayIconForPlatform<T extends TrayIconImage>(platform: string, icon: T): T {
+  const preparedIcon = adaptTrayIconForPlatform(platform, icon)
+  if (platform === 'darwin' && typeof preparedIcon.setTemplateImage === 'function') preparedIcon.setTemplateImage(false)
+  return preparedIcon
 }
 
 export function trayIconCandidates(resourcesPath: string, appPath: string): string[] {
