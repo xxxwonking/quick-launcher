@@ -1,0 +1,59 @@
+appId: com.xxxwonking.quicklauncher
+productName: Quick Launcher
+asar: true
+
+directories:
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: resources/catalog
+    to: catalog
+  - from: build/icon.png
+    to: quick-launcher-icon.png
+
+fileAssociations:
+  - ext: quickcmd.json
+    name: Quick Launcher Command Package
+    description: Quick Launcher 快捷命令包
+    role: Editor
+
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extendInfo:
+    LSUIElement: true
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+
+dmg:
+  title: ${productName} ${version}
+  sign: false
+
+win:
+  icon: build/icon.ico
+  executableName: Quick Launcher
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Quick Launcher

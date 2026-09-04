@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026.09.3",
+  "apps": [
+    {
+      "id": "vscode",
+      "displayName": "Visual Studio Code",
+      "defaultAliases": ["vscode", "vsc", "code"],
+      "platforms": {
+        "windows": {
+          "executables": ["Code.exe"],
+          "publishers": ["Microsoft Corporation"]
+        },
+        "macos": { "bundleIds": ["com.microsoft.VSCode"] }
+      }
+    },
+    {
+      "id": "wechat",
+      "displayName": "微信",
+      "defaultAliases": ["wx", "wechat", "weixin"],
+      "platforms": {
+        "windows": {
+          "executables": ["WeChat.exe"],
+          "publishers": ["Tencent"]
+        },
+        "macos": { "bundleIds": ["com.tencent.xinWeChat"] }
+      }
+    },
+    {
+      "id": "cursor",
+      "displayName": "Cursor",
+      "defaultAliases": ["cursor"],
+      "platforms": {
+        "windows": { "executables": ["Cursor.exe"] },
+        "macos": { "bundleIds": ["com.todesktop.230313mzl4w4u92"] }
+      }
+    },
+    {
+      "id": "chrome",
+      "displayName": "Google Chrome",
+      "defaultAliases": ["chrome", "googlechrome"],
+      "platforms": {
+        "windows": {
+          "executables": ["chrome.exe"],
+          "publishers": ["Google LLC"]
+        },
+        "macos": { "bundleIds": ["com.google.Chrome"] }
+      }
+    },
+    {
+      "id": "edge",
+      "displayName": "Microsoft Edge",
+      "defaultAliases": ["edge", "msedge"],
+      "platforms": {
+        "windows": {
+          "executables": ["msedge.exe"],
+          "publishers": ["Microsoft Corporation"]
+        },
+        "macos": { "bundleIds": ["com.microsoft.edgemac"] }
+      }
+    },
+    {
+      "id": "telegram",
+      "displayName": "Telegram",
+      "defaultAliases": ["tg", "telegram"],
+      "platforms": {
+        "windows": { "executables": ["Telegram.exe"] },
+        "macos": { "bundleIds": ["ru.keepcoder.Telegram"] }
+      }
+    },
+    {
+      "id": "slack",
+      "displayName": "Slack",
+      "defaultAliases": ["slack"],
+      "platforms": {
+        "windows": { "executables": ["slack.exe"] },
+        "macos": { "bundleIds": ["com.tinyspeck.slackmacgap"] }
+      }
+    },
+    {
+      "id": "discord",
+      "displayName": "Discord",
+      "defaultAliases": ["discord"],
+      "platforms": {
+        "windows": { "executables": ["Discord.exe"] },
+        "macos": { "bundleIds": ["com.hnc.Discord"] }
+      }
+    },
+    {
+      "id": "obsidian",
+      "displayName": "Obsidian",
+      "defaultAliases": ["obsidian", "obs"],
+      "platforms": {
+        "windows": { "executables": ["Obsidian.exe"] },
+        "macos": { "bundleIds": ["md.obsidian"] }
+      }
+    },
+    {
+      "id": "notion",
+      "displayName": "Notion",
+      "defaultAliases": ["notion"],
+      "platforms": {
+        "windows": { "executables": ["Notion.exe"] },
+        "macos": { "bundleIds": ["notion.id"] }
+      }
+    },
+    {
+      "id": "spotify",
+      "displayName": "Spotify",
+      "defaultAliases": ["spotify"],
+      "platforms": {
+        "windows": { "executables": ["Spotify.exe"] },
+        "macos": { "bundleIds": ["com.spotify.client"] }
+      }
+    },
+    {
+      "id": "figma",
+      "displayName": "Figma",
+      "defaultAliases": ["figma"],
+      "platforms": {
+        "windows": { "executables": ["Figma.exe"] },
+        "macos": { "bundleIds": ["com.figma.Desktop"] }
+      }
+    },
+    {
+      "id": "iterm2",
+      "displayName": "iTerm2",
+      "defaultAliases": ["iterm", "iterm2"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.googlecode.iterm2"] }
+      }
+    },
+    {
+      "id": "terminal",
+      "displayName": "Windows Terminal",
+      "defaultAliases": ["terminal", "wt"],
+      "platforms": {
+        "windows": {
+          "executables": ["WindowsTerminal.exe"],
+          "appUserModelIds": ["Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"]
+        },
+        "macos": { "bundleIds": ["com.apple.Terminal"] }
+      }
+    },
+    {
+      "id": "safari",
+      "displayName": "Safari",
+      "defaultAliases": ["safari"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.apple.Safari"] }
+      }
+    },
+    {
+      "id": "firefox",
+      "displayName": "Firefox",
+      "defaultAliases": ["firefox", "mozilla"],
+      "platforms": {
+        "windows": {
+          "executables": ["firefox.exe"],
+          "publishers": ["Mozilla Corporation"]
+        },
+        "macos": { "bundleIds": ["org.mozilla.firefox"] }
+      }
+    },
+    {
+      "id": "brave",
+      "displayName": "Brave Browser",
+      "defaultAliases": ["brave", "bravebrowser"],
+      "platforms": {
+        "windows": {
+          "executables": ["brave.exe"],
+          "publishers": ["Brave Software, Inc."]
+        },
+        "macos": { "bundleIds": ["com.brave.Browser"] }
+      }
+    },
+    {
+      "id": "raycast",
+      "displayName": "Raycast",
+      "defaultAliases": ["raycast"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.raycast.macos"] }
+      }
+    },
+    {
+      "id": "alfred",
+      "displayName": "Alfred",
+      "defaultAliases": ["alfred"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.runningwithcrayons.Alfred"] }
+      }
+    },
+    {
+      "id": "iina",
+      "displayName": "IINA",
+      "defaultAliases": ["iina"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.colliderli.iina"] }
+      }
+    },
+    {
+      "id": "proxyman",
+      "displayName": "Proxyman",
+      "defaultAliases": ["proxyman", "proxy"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.proxyman.NSProxy"] }
+      }
+    },
+    {
+      "id": "tailscale",
+      "displayName": "Tailscale",
+      "defaultAliases": ["tailscale"],
+      "platforms": {
+        "macos": { "bundleIds": ["io.tailscale.ipn.macsys"] }
+      }
+    },
+    {
+      "id": "jetbrains-toolbox",
+      "displayName": "JetBrains Toolbox",
+      "defaultAliases": ["jetbrains", "toolbox"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.jetbrains.toolbox"] }
+      }
+    },
+    {
+      "id": "xcode",
+      "displayName": "Xcode",
+      "defaultAliases": ["xcode"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.apple.dt.Xcode"] }
+      }
+    },
+    {
+      "id": "cherry-studio",
+      "displayName": "Cherry Studio",
+      "defaultAliases": ["cherry", "cherry-studio"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.kangfenmao.CherryStudio"] }
+      }
+    },
+    {
+      "id": "activity-monitor",
+      "displayName": "活动监视器",
+      "defaultAliases": ["activitymonitor", "活动监视器"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.apple.ActivityMonitor"] }
+      }
+    },
+    {
+      "id": "docker",
+      "displayName": "Docker",
+      "defaultAliases": ["docker"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.docker.docker"] }
+      }
+    },
+    {
+      "id": "qq",
+      "displayName": "QQ",
+      "defaultAliases": ["qq"],
+      "platforms": {
+        "macos": { "bundleIds": ["com.tencent.qq"] }
+      }
+    }
+  ],
+  "commands": []
+}

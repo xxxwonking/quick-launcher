@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
 import { pinyin } from 'pinyin-pro'
 import type { LauncherCatalogPayload, LauncherIcon, LauncherItem } from '../shared/launcher-item'
-import { shortcutDisplayName, type ShortcutEntry } from './shortcut-index'
+import type { BaseAppTemplate } from '../shared/base-catalog'
+import type { UserApplicationBinding } from '../shared/launcher-command'
+import { shortcutDisplayName, type ShortcutEntry, type ShortcutMetadata } from './shortcut-index'
 
 export type IndexedApplicationCatalog = {
   payload: LauncherCatalogPayload
   targets: ReadonlyMap<string, string>
+  templateTargets: ReadonlyMap<string, string>
 }
 
 function opaqueTargetId(path: string): string {
@@ -22,7 +25,36 @@ function applicationIcon(title: string): LauncherIcon {
   return 'code'
 }
 
-export function applicationAliases(title: string): string[] {
+export function matchesBaseTemplate(title: string, metadata: ShortcutMetadata | undefined, app: BaseAppTemplate): boolean {
+  const normalizedTitle = title.trim().toLocaleLowerCase()
+  const titleMatches = app.displayName.toLocaleLowerCase() === normalizedTitle || app.defaultAliases.some((alias) => alias.toLocaleLowerCase() === normalizedTitle)
+  if (!metadata) return titleMatches
+
+  if (metadata.platform === 'macos') {
+    const macos = app.platforms.macos
+    if (!macos) return false
+    const bundleIdMatches = Boolean(metadata.bundleId && macos.bundleIds.some((bundleId) => bundleId.toLocaleLowerCase() === metadata.bundleId?.toLocaleLowerCase()))
+    if (metadata.bundleId && !bundleIdMatches) return false
+    return titleMatches || bundleIdMatches
+  }
+
+  const windows = app.platforms.windows
+  if (!windows) return false
+  const executable = metadata.executableName?.split(/[\\/]/u).at(-1)?.toLocaleLowerCase()
+  const executableMatches = Boolean(executable && windows.executables?.some((name) => name.toLocaleLowerCase() === executable))
+  const publisherMatches = Boolean(metadata.publisher && windows.publishers?.some((publisher) => publisher.toLocaleLowerCase() === metadata.publisher?.toLocaleLowerCase()))
+  const appUserModelIdMatches = Boolean(metadata.appUserModelId && windows.appUserModelIds?.some((id) => id.toLocaleLowerCase() === metadata.appUserModelId?.toLocaleLowerCase()))
+  if (windows.appUserModelIds?.length) {
+    if (!metadata.appUserModelId || !appUserModelIdMatches) return false
+    return true
+  }
+  if (titleMatches && !windows.executables?.length && !windows.publishers?.length) return true
+  if (!executableMatches) return false
+  if (windows.publishers?.length) return Boolean(metadata.publisher && publisherMatches)
+  return true
+}
+
+export function applicationAliases(title: string, baseApps: readonly BaseAppTemplate[] = [], metadata?: ShortcutMetadata): string[] {
   const normalizedTitle = title.trim().toLocaleLowerCase()
   const syllables = pinyin(title, { type: 'array', toneType: 'none', nonZh: 'consecutive' })
   const initials = pinyin(title, { type: 'array', toneType: 'none', pattern: 'first', nonZh: 'consecutive' })
@@ -31,14 +63,40 @@ export function applicationAliases(title: string): string[] {
     : normalizedTitle === '微信'
       ? ['wx', 'wechat', 'weixin']
       : []
-  const values = [normalizedTitle, syllables.join(''), initials.join(''), ...knownAliases]
+  const baseTemplate = baseApps.find((app) => (
+    matchesBaseTemplate(title, metadata, app)
+  ))
+  const values = [
+    normalizedTitle,
+    syllables.join(''),
+    initials.join(''),
+    ...knownAliases,
+    ...(baseTemplate ? [baseTemplate.displayName.toLocaleLowerCase(), ...baseTemplate.defaultAliases] : []),
+  ]
   return values.filter((value, index) => value.length > 0 && values.indexOf(value) === index)
 }
 
-export function buildIndexedApplicationCatalog(entries: readonly ShortcutEntry[], snapshotVersion: number): IndexedApplicationCatalog {
-  const sorted = [...entries].sort((left, right) => left.path.localeCompare(right.path, 'en'))
+export function buildIndexedApplicationCatalog(
+  entries: readonly ShortcutEntry[],
+  snapshotVersion: number,
+  baseApps: readonly BaseAppTemplate[] = [],
+  appBindings: Readonly<Record<string, UserApplicationBinding>> = {},
+): IndexedApplicationCatalog {
+  const boundTemplateByPath = new Map<string, BaseAppTemplate>()
+  const boundEntries = baseApps.flatMap((app): ShortcutEntry[] => {
+    const binding = appBindings[app.id]
+    if (!binding) return []
+    boundTemplateByPath.set(binding.path, app)
+    return [{
+      displayName: app.displayName,
+      path: binding.path,
+      metadata: { platform: binding.platform },
+    }]
+  })
+  const sorted = [...boundEntries, ...[...entries].sort((left, right) => left.path.localeCompare(right.path, 'en'))]
   const seenNames = new Set<string>()
   const targets = new Map<string, string>()
+  const templateTargets = new Map<string, string>()
   const items: LauncherItem[] = []
 
   for (const entry of sorted) {
@@ -47,9 +105,16 @@ export function buildIndexedApplicationCatalog(entries: readonly ShortcutEntry[]
     if (!title || seenNames.has(normalizedName)) continue
     seenNames.add(normalizedName)
     const targetId = opaqueTargetId(entry.path)
-    const aliases = applicationAliases(title)
+    const boundTemplate = boundTemplateByPath.get(entry.path)
+    const aliases = [...new Set([
+      ...applicationAliases(title, baseApps, entry.metadata),
+      ...(boundTemplate?.defaultAliases ?? []),
+    ])]
     const hint = aliases.find((alias) => alias !== normalizedName)
     targets.set(targetId, entry.path)
+    for (const app of baseApps) {
+      if (matchesBaseTemplate(title, entry.metadata, app) && !templateTargets.has(app.id)) templateTargets.set(app.id, targetId)
+    }
     items.push({
       id: targetId,
       title,
@@ -62,5 +127,12 @@ export function buildIndexedApplicationCatalog(entries: readonly ShortcutEntry[]
     })
   }
 
-  return { payload: { snapshotVersion, items }, targets }
+  for (const app of baseApps) {
+    const binding = appBindings[app.id]
+    if (!binding) continue
+    const targetId = opaqueTargetId(binding.path)
+    if (targets.has(targetId)) templateTargets.set(app.id, targetId)
+  }
+
+  return { payload: { snapshotVersion, items }, targets, templateTargets }
 }

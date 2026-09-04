@@ -14,6 +14,16 @@ describe('App', () => {
     expect(screen.getByText('Quick Launcher')).toBeInTheDocument()
   })
 
+  it('does not show demo applications before the main-process catalog is available', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByRole('combobox'), 'wx')
+
+    expect(screen.queryByRole('option', { name: /^微信/u })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /使用必应搜索/u })).toBeInTheDocument()
+  })
+
   it('opens the local settings view from the reserved setting command when the preload API is absent', async () => {
     const user = userEvent.setup()
     render(<App />)

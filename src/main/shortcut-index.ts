@@ -5,6 +5,15 @@ import { readdir } from 'node:fs/promises'
 export type ShortcutEntry = {
   displayName: string
   path: string
+  metadata?: ShortcutMetadata
+}
+
+export type ShortcutMetadata = {
+  platform: 'windows' | 'macos'
+  executableName?: string
+  bundleId?: string
+  publisher?: string
+  appUserModelId?: string
 }
 
 export type ShortcutIndex = {
@@ -25,6 +34,11 @@ export function shortcutDisplayName(value: string): string {
     .replace(/\s+-\s+快捷方式$/u, '')
     .replace(/\s+/gu, ' ')
     .trim()
+}
+
+export function shortcutExecutableName(value: string): string | undefined {
+  const name = value.trim().split(/[\\/]/u).at(-1)?.trim()
+  return name || undefined
 }
 
 export function matchShortcutName(fileName: string, aliases: readonly string[]): boolean {

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { loadMacIconData } from './mac-icon-cache'
+import { loadFirstMacIconData, loadMacIconData } from './mac-icon-cache'
 
 const temporaryDirectories: string[] = []
 
@@ -30,5 +30,71 @@ describe('macOS icon cache', () => {
     expect(convertIcns).toHaveBeenCalledWith(iconPath, expect.stringMatching(/\.png$/u))
     expect(createFromPath).toHaveBeenCalledWith(expect.stringMatching(/\.png$/u))
     expect(iconData).toBe('data:image/png;base64,qq-icon')
+  })
+
+  it('normalizes png icons that Electron cannot decode directly', async () => {
+    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    temporaryDirectories.push(directory)
+    const iconPath = join(directory, 'ios-app-icon.png')
+    const cacheDirectory = join(directory, 'cache')
+    await writeFile(iconPath, 'ios png data')
+    const convertImage = vi.fn(async (_source: string, destination: string) => {
+      await mkdir(cacheDirectory, { recursive: true })
+      await writeFile(destination, 'normalized png data')
+    })
+    const createFromPath = vi.fn((path: string) => ({
+      isEmpty: () => path === iconPath,
+      resize: () => ({ toDataURL: () => 'data:image/png;base64,normalized-ios-icon' }),
+    }))
+
+    const iconData = await loadMacIconData(iconPath, cacheDirectory, createFromPath, convertImage)
+
+    expect(createFromPath).toHaveBeenNthCalledWith(1, iconPath)
+    expect(convertImage).toHaveBeenCalledWith(iconPath, expect.stringMatching(/\.png$/u))
+    expect(createFromPath).toHaveBeenNthCalledWith(2, expect.stringMatching(/\.png$/u))
+    expect(iconData).toBe('data:image/png;base64,normalized-ios-icon')
+  })
+
+  it('continues to normalization when direct PNG decoding throws', async () => {
+    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    temporaryDirectories.push(directory)
+    const iconPath = join(directory, 'ios-app-icon.png')
+    const cacheDirectory = join(directory, 'cache')
+    await writeFile(iconPath, 'ios png data')
+    const convertImage = vi.fn(async (_source: string, destination: string) => {
+      await mkdir(cacheDirectory, { recursive: true })
+      await writeFile(destination, 'normalized png data')
+    })
+    const createFromPath = vi.fn((path: string) => {
+      if (path === iconPath) throw new Error('unsupported PNG encoding')
+      return {
+        isEmpty: () => false,
+        resize: () => ({ toDataURL: () => 'data:image/png;base64,recovered-ios-icon' }),
+      }
+    })
+
+    await expect(loadMacIconData(iconPath, cacheDirectory, createFromPath, convertImage)).resolves.toBe('data:image/png;base64,recovered-ios-icon')
+    expect(convertImage).toHaveBeenCalledWith(iconPath, expect.stringMatching(/\.png$/u))
+  })
+
+  it('tries the next icon candidate when the first resource cannot be loaded', async () => {
+    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    temporaryDirectories.push(directory)
+    const firstIconPath = join(directory, 'broken.icns')
+    const secondIconPath = join(directory, 'fallback.png')
+    await writeFile(firstIconPath, 'broken icon')
+    await writeFile(secondIconPath, 'fallback icon')
+    const createFromPath = vi.fn((path: string) => ({
+      isEmpty: () => path === firstIconPath || path.includes('/cache/'),
+      resize: () => ({ toDataURL: () => 'data:image/png;base64,fallback-icon' }),
+    }))
+
+    await expect(loadFirstMacIconData(
+      [firstIconPath, secondIconPath],
+      join(directory, 'cache'),
+      createFromPath,
+      vi.fn(),
+    )).resolves.toBe('data:image/png;base64,fallback-icon')
+    expect(createFromPath).toHaveBeenCalledWith(secondIconPath)
   })
 })

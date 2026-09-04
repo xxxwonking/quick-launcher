@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { LauncherCatalogPayload } from '../../shared/launcher-item'
+import type { LauncherExecutionResult } from '../../shared/launcher-ipc'
 import { LauncherWindow } from './components/launcher-window'
 import { searchLauncher, type LauncherItem } from './search/search-catalog'
 import { SettingsPage } from './settings/settings-page'
@@ -32,10 +33,15 @@ export function App(): React.JSX.Element {
     return <SettingsPage onOpenTutorial={() => setTutorialOpen(true)} onThemeChange={theme.setPreference} themePreference={theme.preference} tutorialOpen={tutorialOpen} />
   }
 
-  const execute = async (item: LauncherItem): Promise<void | string> => {
+  const execute = async (item: LauncherItem): Promise<void | LauncherExecutionResult> => {
     if (window.launcher?.execute) return window.launcher.execute(item)
     if (item.action.type === 'web-search') return `将在浏览器中搜索“${item.action.query}”`
     return `已模拟打开 ${item.title}`
+  }
+
+  const copyGeneratedUrl = async (token: string): Promise<string> => {
+    if (window.launcher?.copyGeneratedUrl) return window.launcher.copyGeneratedUrl(token)
+    return '复制网址功能不可用'
   }
 
   const openSettings = ({ tutorial }: { tutorial: boolean }): void => {
@@ -56,7 +62,8 @@ export function App(): React.JSX.Element {
       onExecute={execute}
       onHide={() => void window.launcher?.hideLauncher()}
       onOpenSettings={openSettings}
-      {...(runtimeItems ? { runtimeItems } : {})}
+      onCopyGeneratedUrl={copyGeneratedUrl}
+      {...(runtimeItems === undefined ? {} : { runtimeItems })}
     />
   )
 }

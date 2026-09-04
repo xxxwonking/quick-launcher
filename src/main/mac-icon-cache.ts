@@ -1,6 +1,6 @@
 import * as childProcess from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, mkdir, stat } from 'node:fs/promises'
+import { access, mkdir, stat, unlink } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -10,9 +10,9 @@ type LoadedImage = {
 }
 
 type ImageLoader = (path: string) => LoadedImage
-type IcnsConverter = (source: string, destination: string) => Promise<void>
+type ImageConverter = (source: string, destination: string) => Promise<void>
 
-async function convertIcnsWithSips(source: string, destination: string): Promise<void> {
+async function convertImageWithSips(source: string, destination: string): Promise<void> {
   await promisify(childProcess.execFile)('/usr/bin/sips', ['-s', 'format', 'png', source, '--out', destination], {
     timeout: 5_000,
   })
@@ -31,20 +31,48 @@ export async function loadMacIconData(
   iconPath: string,
   cacheDirectory: string,
   createFromPath: ImageLoader,
-  convertIcns: IcnsConverter = convertIcnsWithSips,
+  convertImage: ImageConverter = convertImageWithSips,
 ): Promise<string | undefined> {
-  let renderablePath = iconPath
-  if (extname(iconPath).toLocaleLowerCase() === '.icns') {
-    await mkdir(cacheDirectory, { recursive: true })
-    renderablePath = await cachedPngPath(iconPath, cacheDirectory)
+  const loadData = (path: string): string | undefined => {
     try {
-      await access(renderablePath)
+      const image = createFromPath(path)
+      if (image.isEmpty()) return undefined
+      return image.resize({ width: 64, height: 64 }).toDataURL() || undefined
     } catch {
-      await convertIcns(iconPath, renderablePath)
+      return undefined
     }
   }
 
-  const image = createFromPath(renderablePath)
-  if (image.isEmpty()) return undefined
-  return image.resize({ width: 64, height: 64 }).toDataURL() || undefined
+  if (extname(iconPath).toLocaleLowerCase() !== '.icns') {
+    const directData = loadData(iconPath)
+    if (directData) return directData
+  }
+
+  try {
+    await mkdir(cacheDirectory, { recursive: true })
+    const renderablePath = await cachedPngPath(iconPath, cacheDirectory)
+    try {
+      await access(renderablePath)
+    } catch {
+      await convertImage(iconPath, renderablePath)
+    }
+    const iconData = loadData(renderablePath)
+    if (!iconData) await unlink(renderablePath).catch(() => undefined)
+    return iconData
+  } catch {
+    return undefined
+  }
+}
+
+export async function loadFirstMacIconData(
+  iconPaths: readonly string[],
+  cacheDirectory: string,
+  createFromPath: ImageLoader,
+  convertImage: ImageConverter = convertImageWithSips,
+): Promise<string | undefined> {
+  for (const iconPath of iconPaths) {
+    const iconData = await loadMacIconData(iconPath, cacheDirectory, createFromPath, convertImage)
+    if (iconData) return iconData
+  }
+  return undefined
 }

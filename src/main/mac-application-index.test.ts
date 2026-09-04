@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { defaultMacApplicationRoots, scanMacApplicationDirectories } from './mac-application-index'
+import {
+  defaultMacApplicationRoots,
+  findMacApplicationsByBundleIds,
+  isDiscoverableMacApplicationPath,
+  parseMacBundleId,
+  scanMacApplicationDirectories,
+} from './mac-application-index'
 
 const temporaryDirectories: string[] = []
 
@@ -41,7 +47,7 @@ describe('macOS application index', () => {
     temporaryDirectories.push(root)
     const localApp = join(root, 'Local.app')
     await mkdir(localApp, { recursive: true })
-    const discoveredApp = '/Applications/Discovered.app'
+    const discoveredApp = join(root, 'Discovered.app')
 
     const index = await scanMacApplicationDirectories([root], async () => [
       localApp,
@@ -52,5 +58,42 @@ describe('macOS application index', () => {
 
     expect(index.entries.map((entry) => entry.path)).toEqual([discoveredApp, localApp])
     expect(index.find(['discovered'])?.path).toBe(discoveredApp)
+  })
+
+  it('accepts application bundles below configured roots but rejects nested helper bundles', () => {
+    expect(isDiscoverableMacApplicationPath('/Applications/Docker.app', ['/Applications'])).toBe(true)
+    expect(isDiscoverableMacApplicationPath('/Applications/Utilities/Console.app', ['/Applications'])).toBe(true)
+    expect(isDiscoverableMacApplicationPath(
+      '/Applications/Docker.app/Contents/Library/LoginItems/DockerHelper.app',
+      ['/Applications'],
+    )).toBe(false)
+  })
+
+  it('ignores Spotlight applications outside configured roots', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'quick-launcher-mac-'))
+    temporaryDirectories.push(root)
+
+    const index = await scanMacApplicationDirectories([root], async () => [
+      join(root, 'Visible.app'),
+      '/System/Library/CoreServices/SubmitDiagInfo.app',
+      '/System/Library/PrivateFrameworks/Example.framework/Versions/A/Resources/Agent.app',
+    ])
+
+    expect(index.entries.map((entry) => entry.path)).toEqual([join(root, 'Visible.app')])
+  })
+
+  it('queries only requested bundle identifiers for precise matching', async () => {
+    const queryApplications = async (query: string): Promise<readonly string[]> => (
+      query.includes('com.google.Chrome') ? ['/Applications/Google Chrome.app'] : []
+    )
+    const matches = await findMacApplicationsByBundleIds(['com.google.Chrome', 'com.google.Chrome'], queryApplications)
+
+    expect(matches.get('/Applications/Google Chrome.app')).toBe('com.google.Chrome')
+  })
+
+  it('parses a Bundle ID from an Info.plist JSON snapshot', () => {
+    expect(parseMacBundleId({ CFBundleIdentifier: 'com.tencent.weread' })).toBe('com.tencent.weread')
+    expect(parseMacBundleId({ CFBundleIdentifier: '(null)' })).toBeUndefined()
+    expect(parseMacBundleId({ CFBundleIdentifier: 'contains\ncontrol' })).toBeUndefined()
   })
 })

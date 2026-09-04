@@ -133,6 +133,21 @@ vi.mock('./user-command-store', () => ({
   })),
 }))
 
+vi.mock('./activity-history', () => ({
+  createActivityHistoryStore: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockReturnValue([]),
+    add: vi.fn().mockResolvedValue(undefined),
+  })),
+}))
+
+vi.mock('./application-index-cache', () => ({
+  createApplicationIndexCache: vi.fn(() => ({
+    load: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockResolvedValue(undefined),
+  })),
+}))
+
 vi.mock('./shortcut-index', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./shortcut-index')>()
   bootstrapState.scanShortcuts.mockImplementation((roots: readonly string[] | undefined) => {

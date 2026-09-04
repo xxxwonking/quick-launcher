@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createShortcutIndex, defaultShortcutRoots, matchShortcutName, shortcutDisplayName, type ShortcutEntry } from './shortcut-index'
+import { createShortcutIndex, defaultShortcutRoots, matchShortcutName, shortcutDisplayName, shortcutExecutableName, type ShortcutEntry } from './shortcut-index'
 
 describe('shortcut index', () => {
   it('matches aliases case-insensitively and ignores shortcut extensions', () => {
@@ -19,6 +19,12 @@ describe('shortcut index', () => {
 
   it('removes shortcut decoration without changing product casing', () => {
     expect(shortcutDisplayName('VS Code - 快捷方式.lnk')).toBe('VS Code')
+  })
+
+  it('extracts only the executable file name from a shortcut target', () => {
+    expect(shortcutExecutableName('C:\\Program Files\\Google\\Chrome\\chrome.exe')).toBe('chrome.exe')
+    expect(shortcutExecutableName('/Applications/Chrome.app/Contents/MacOS/Google Chrome')).toBe('Google Chrome')
+    expect(shortcutExecutableName('')).toBeUndefined()
   })
 
   it('uses the Electron-provided desktop path while preserving Start Menu roots', () => {
