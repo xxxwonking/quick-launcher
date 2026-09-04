@@ -598,7 +598,7 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
                       <button aria-label={`移除文件搜索目录 ${root}`} className="icon-button text-rose-500 hover:border-rose-500/50 hover:bg-rose-500/10" disabled={saving} onClick={() => removeFileSearchRoot(root)} type="button"><Trash2 className="size-3.5" /></button>
                     </div>
                   ))}
-                  <button aria-label="添加文件搜索目录" className="secondary-button self-start" disabled={saving || !api?.selectFileSearchRoot} onClick={() => void addFileSearchRoot()} type="button"><Plus className="size-3.5" />添加目录</button>
+                  <button aria-label="添加文件搜索目录" className="secondary-button settings-inline-action self-start" disabled={saving || !api?.selectFileSearchRoot} onClick={() => void addFileSearchRoot()} type="button"><Plus className="size-3.5" />添加目录</button>
                 </div>
               </section>
 

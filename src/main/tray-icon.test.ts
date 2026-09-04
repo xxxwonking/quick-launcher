@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { resolveTrayIconPath, trayIconCandidates } from './tray-icon'
+import { describe, expect, it, vi } from 'vitest'
+import { adaptTrayIconForPlatform, MACOS_TRAY_ICON_SIZE, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
 
 describe('tray icon resolution', () => {
   it('prefers the packaged extra resource before the development asset', () => {
@@ -15,5 +15,26 @@ describe('tray icon resolution', () => {
 
   it('returns no path when none of the candidates exists', () => {
     expect(resolveTrayIconPath(trayIconCandidates('/resources', '/workspace'), () => false)).toBeUndefined()
+  })
+
+  it('resizes the application icon to a compact macOS menu bar image', () => {
+    const resizedIcon = { isEmpty: () => false }
+    const icon = {
+      isEmpty: () => false,
+      resize: vi.fn().mockReturnValue(resizedIcon),
+    }
+
+    expect(adaptTrayIconForPlatform('darwin', icon)).toBe(resizedIcon)
+    expect(icon.resize).toHaveBeenCalledWith({ width: MACOS_TRAY_ICON_SIZE, height: MACOS_TRAY_ICON_SIZE })
+  })
+
+  it('keeps the original tray image on Windows and when macOS resizing fails', () => {
+    const icon = {
+      isEmpty: () => false,
+      resize: vi.fn().mockImplementation(() => { throw new Error('resize unavailable') }),
+    }
+
+    expect(adaptTrayIconForPlatform('win32', icon)).toBe(icon)
+    expect(adaptTrayIconForPlatform('darwin', icon)).toBe(icon)
   })
 })

@@ -38,7 +38,7 @@
 - macOS 图标加载会优先读取 `Info.plist` 中声明的图标资源，将 Electron 无法直接解码的 iPhone/iPad 兼容应用 PNG 通过 `sips` 规范化并缓存，并按资源优先级保留多个候选图标，单个损坏时继续尝试后续资源；图标加载使用有界并发、合并同一路径的并发请求且失败项可在刷新时重试，首批文本目录先发布、图标在后台补齐，并用刷新代数丢弃过期结果；应用退出前会等待已开始的图标任务结束，避免缓存目录被并发写入。Windows 优先读取 `.lnk` 记录的图标路径，商店应用会尝试通过 `shell:AppsFolder` 的 AUMID 读取图标，再回退到目标程序和快捷方式本身；下发 Renderer 前限制为有限大小的图片 Data URL，异常格式回退到字标。
 - macOS Bundle 图标读取失败时会回退 Electron 系统图标接口，覆盖没有独立 `.icns` 文件的兼容应用。
 - 当操作系统和应用包都无法提供可解码图标时，搜索结果会显示应用名缩写字标作为可区分的视觉兜底；Renderer 在图片数据解码失败时也会切换到该字标，不再让所有应用都显示同一个代码图标或破损图片。
-- 托盘图标使用与安装包一致的 Quick Launcher 图标；开发环境、macOS 和 Windows 打包环境均优先读取资源文件，资源损坏时安全回退。
+- 托盘图标使用与安装包一致的 Quick Launcher 图标；开发环境、macOS 和 Windows 打包环境均优先读取资源文件，资源损坏时安全回退；macOS 传入 Tray 前会将高清应用图标适配为 18×18 菜单栏图标，避免原始 1024×1024 资源撑大状态栏项目。
 - macOS 使用与 Windows 相同的 opaque 应用 ID 和主进程启动路径；设置页将快捷键显示为 `Option + Space`。
 - 基础软件模板目录已加入严格校验的数据层，开发环境和正式打包均会读取 `resources/catalog/base.json`；模板别名会合并到 macOS/Windows 应用索引，平台标识暂为后续精确匹配预留。
 - 内置软件模板已扩展 Slack、Discord、Obsidian、Notion、Spotify、Figma、iTerm2、Terminal、Safari、Firefox、Brave、Raycast、Alfred、IINA、Proxyman、Tailscale、JetBrains Toolbox、Xcode、Cherry Studio、活动监视器、Docker 和 QQ，继续使用 Bundle ID、exe 名称及 AppUserModelID 的精确匹配，不会凭模板制造虚假搜索结果。

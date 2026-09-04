@@ -1219,6 +1219,15 @@ kbd {
   color: var(--text-primary);
 }
 
+.settings-inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .settings-nav-item:focus-visible,
 .hotkey-chip:focus-visible,
 .theme-select:focus-visible,

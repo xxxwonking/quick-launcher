@@ -256,7 +256,9 @@ describe('SettingsPage', () => {
     } as unknown as NonNullable<typeof window.launcher>
 
     render(<SettingsPage />)
-    await user.click(await screen.findByRole('button', { name: '添加文件搜索目录' }))
+    const addRootButton = await screen.findByRole('button', { name: '添加文件搜索目录' })
+    expect(addRootButton).toHaveClass('settings-inline-action')
+    await user.click(addRootButton)
 
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ fileSearchRoots: ['/Users/alice/Projects'] }))
     expect(screen.getByText('/Users/alice/Projects')).toBeInTheDocument()
