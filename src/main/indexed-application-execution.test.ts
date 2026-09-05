@@ -224,8 +224,22 @@ vi.mock('./shortcut-index', async (importOriginal) => {
 
 vi.mock('./windows-application-index', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./windows-application-index')>()
-  return { ...actual, readWindowsExecutablePublisher: vi.fn().mockResolvedValue('Google LLC') }
+  const { scanShortcutDirectories } = await import('./shortcut-index')
+  return {
+    ...actual,
+    readWindowsExecutablePublisher: vi.fn().mockResolvedValue('Google LLC'),
+    scanWindowsApplications: vi.fn((roots: readonly string[]) => actual.scanWindowsApplications(roots, {
+      scanShortcuts: scanShortcutDirectories,
+      discoverAppPaths: async () => [],
+      discoverStoreApps: async () => [],
+      discoverStandaloneExecutables: async () => [],
+    })),
+  }
 })
+
+vi.mock('./application-index-watcher', () => ({
+  createApplicationIndexWatcher: vi.fn(() => ({ close: vi.fn() })),
+}))
 
 async function invoke(channel: string, value?: unknown): Promise<unknown> {
   const handler = electronState.handlers.get(channel)
@@ -241,6 +255,7 @@ describe('indexed application execution', () => {
     await import('./index')
     if (!electronState.readyCallback) throw new Error('Electron bootstrap was not registered')
     await electronState.readyCallback()
+    await invoke('launcher:refresh-applications')
   })
 
   beforeEach(() => {

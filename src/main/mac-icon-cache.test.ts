@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadFirstMacIconData, loadMacIconData } from './mac-icon-cache'
 
@@ -11,7 +12,7 @@ afterEach(async () => {
 
 describe('macOS icon cache', () => {
   it('converts icns files to cached png data before rendering', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-cache-'))
     temporaryDirectories.push(directory)
     const iconPath = join(directory, 'icon.icns')
     const cacheDirectory = join(directory, 'cache')
@@ -33,7 +34,7 @@ describe('macOS icon cache', () => {
   })
 
   it('normalizes png icons that Electron cannot decode directly', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-cache-'))
     temporaryDirectories.push(directory)
     const iconPath = join(directory, 'ios-app-icon.png')
     const cacheDirectory = join(directory, 'cache')
@@ -56,7 +57,7 @@ describe('macOS icon cache', () => {
   })
 
   it('continues to normalization when direct PNG decoding throws', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-cache-'))
     temporaryDirectories.push(directory)
     const iconPath = join(directory, 'ios-app-icon.png')
     const cacheDirectory = join(directory, 'cache')
@@ -78,14 +79,14 @@ describe('macOS icon cache', () => {
   })
 
   it('tries the next icon candidate when the first resource cannot be loaded', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-cache-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-cache-'))
     temporaryDirectories.push(directory)
     const firstIconPath = join(directory, 'broken.icns')
     const secondIconPath = join(directory, 'fallback.png')
     await writeFile(firstIconPath, 'broken icon')
     await writeFile(secondIconPath, 'fallback icon')
     const createFromPath = vi.fn((path: string) => ({
-      isEmpty: () => path === firstIconPath || path.includes('/cache/'),
+      isEmpty: () => path === firstIconPath || dirname(path) === join(directory, 'cache'),
       resize: () => ({ toDataURL: () => 'data:image/png;base64,fallback-icon' }),
     }))
 

@@ -1,16 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
+import { join } from 'node:path'
 import { adaptTrayIconForPlatform, MACOS_TRAY_ICON_SIZE, prepareTrayIconForPlatform, resolveTrayIconPath, trayIconCandidates } from './tray-icon'
 
 describe('tray icon resolution', () => {
   it('prefers the packaged extra resource before the development asset', () => {
     const candidates = trayIconCandidates('/app/Contents/Resources', '/workspace')
-    expect(candidates[0]).toBe('/app/Contents/Resources/quick-launcher-icon.png')
-    expect(resolveTrayIconPath(candidates, (path) => path === '/app/Contents/Resources/quick-launcher-icon.png')).toBe('/app/Contents/Resources/quick-launcher-icon.png')
+    const packagedPath = join('/app/Contents/Resources', 'quick-launcher-icon.png')
+    expect(candidates[0]).toBe(packagedPath)
+    expect(resolveTrayIconPath(candidates, (path) => path === packagedPath)).toBe(packagedPath)
   })
 
   it('falls back to the development asset when the packaged resource is unavailable', () => {
     const candidates = trayIconCandidates('/resources', '/workspace')
-    expect(resolveTrayIconPath(candidates, (path) => path === '/workspace/build/icon.png')).toBe('/workspace/build/icon.png')
+    const developmentPath = join('/workspace', 'build', 'icon.png')
+    expect(resolveTrayIconPath(candidates, (path) => path === developmentPath)).toBe(developmentPath)
   })
 
   it('returns no path when none of the candidates exists', () => {

@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { findApplicationIconPath, findApplicationIconPaths, parseMacIconNamesFromXml } from './application-icon-path'
@@ -11,7 +12,7 @@ afterEach(async () => {
 
 describe('application icon paths', () => {
   it('finds the icon inside a wrapped application bundle', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-'))
     temporaryDirectories.push(directory)
     const applicationPath = join(directory, 'Shadowrocket.app')
     const iconPath = join(applicationPath, 'Wrapper', 'Shadowrocket.app', 'AppIcon60x60@2x.png')
@@ -22,7 +23,7 @@ describe('application icon paths', () => {
   })
 
   it('prefers the bundle icns icon over a generic png resource', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-'))
     temporaryDirectories.push(directory)
     const applicationPath = join(directory, 'Example.app')
     const resourcesPath = join(applicationPath, 'Contents', 'Resources')
@@ -35,7 +36,7 @@ describe('application icon paths', () => {
   })
 
   it('uses an app-declared-style icns file even when it has a custom name', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-'))
     temporaryDirectories.push(directory)
     const applicationPath = join(directory, 'QQMiniApp.app')
     const resourcesPath = join(applicationPath, 'Contents', 'Resources')
@@ -47,7 +48,7 @@ describe('application icon paths', () => {
   })
 
   it('keeps multiple icon candidates so a broken first resource can fall back to another one', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-'))
     temporaryDirectories.push(directory)
     const applicationPath = join(directory, 'WrappedApp.app')
     const resourcesPath = join(applicationPath, 'Contents', 'Resources')
@@ -61,7 +62,7 @@ describe('application icon paths', () => {
   })
 
   it('prioritizes icon files declared by the nested bundle Info.plist', async () => {
-    const directory = await mkdtemp(join('/tmp', 'quick-launcher-icon-'))
+    const directory = await mkdtemp(join(tmpdir(), 'quick-launcher-icon-'))
     temporaryDirectories.push(directory)
     const applicationPath = join(directory, 'CatalystApp.app')
     const resourcesPath = join(applicationPath, 'Contents', 'Resources')

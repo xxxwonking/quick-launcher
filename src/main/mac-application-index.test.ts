@@ -20,7 +20,7 @@ describe('macOS application index', () => {
   it('uses the system, user, and system application roots without duplicates', () => {
     expect(defaultMacApplicationRoots('/Users/alice')).toEqual([
       '/Applications',
-      '/Users/alice/Applications',
+      join('/Users/alice', 'Applications'),
       '/System/Applications',
     ])
   })
