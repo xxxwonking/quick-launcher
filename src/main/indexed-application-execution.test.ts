@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { BaseCatalogSnapshot } from '../shared/launcher-ipc'
+import type { LauncherCatalogPayload } from '../shared/launcher-item'
 
 const originalPlatform = process.platform
 
@@ -96,6 +98,7 @@ vi.mock('node:child_process', () => ({ spawn: electronState.spawn }))
 
 vi.mock('electron', () => ({
   app: {
+    getFileIcon: vi.fn().mockResolvedValue({ toDataURL: () => 'data:image/png;base64,dGVzdA==' }),
     getPath: vi.fn().mockReturnValue('C:\\QuickLauncherTest'),
     get isPackaged() {
       return electronState.isPackaged
@@ -168,6 +171,7 @@ vi.mock('./settings-store', () => ({
       autostart: false,
       clipboardHistoryEnabled: true,
       fileHistoryEnabled: true,
+      disabledBaseAppIds: ['chrome'],
       theme: 'system',
       searchEngine: { kind: 'bing' },
     }),
@@ -211,8 +215,16 @@ vi.mock('./shortcut-index', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./shortcut-index')>()
   return {
     ...actual,
-    scanShortcutDirectories: vi.fn().mockResolvedValue(actual.createShortcutIndex([indexedShortcut, indexedStoreApp])),
+    scanShortcutDirectories: vi.fn().mockResolvedValue(actual.createShortcutIndex([indexedShortcut, indexedStoreApp, {
+      displayName: 'Google Chrome', path: 'C:\\ZZApps\\chrome.exe',
+      metadata: { platform: 'windows', executableName: 'chrome.exe' },
+    }])),
   }
+})
+
+vi.mock('./windows-application-index', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./windows-application-index')>()
+  return { ...actual, readWindowsExecutablePublisher: vi.fn().mockResolvedValue('Google LLC') }
 })
 
 async function invoke(channel: string, value?: unknown): Promise<unknown> {
@@ -508,6 +520,20 @@ describe('indexed application execution', () => {
       'launcher:catalog-changed',
       expect.objectContaining({ snapshotVersion: expect.any(Number), items: expect.any(Array) }),
     )
+  })
+
+  it('keeps a disabled Windows template icon after a fresh scan without restoring its aliases', async () => {
+    await invoke('launcher:refresh-applications')
+    await vi.waitFor(async () => {
+      const templates = await invoke('launcher:get-base-catalog') as BaseCatalogSnapshot
+      expect(templates.disabledAppIds).toContain('chrome')
+      expect(templates.apps.find((app) => app.id === 'chrome')?.iconData).toBe('data:image/png;base64,dGVzdA==')
+    })
+    const catalog = await invoke('launcher:get-catalog') as LauncherCatalogPayload
+    const chrome = catalog.items.find((item) => item.title === 'Google Chrome')
+    expect(chrome).toBeDefined()
+    expect(chrome?.aliases).not.toContain('googlechrome')
+    expect(chrome?.iconData).toBe('data:image/png;base64,dGVzdA==')
   })
 
   it('publishes the refreshed catalog after a tray refresh', async () => {

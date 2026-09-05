@@ -787,7 +787,9 @@ async function publishApplicationRefresh(
   persistCache: boolean,
 ): Promise<{ count: number }> {
   const enabledBaseApps = enabledApplicationTemplates()
-  shortcutIndex = await enrichMacApplicationIndex(await enrichWindowsShortcutIndex(scannedApplications, enabledBaseApps), enabledBaseApps)
+  // Identity metadata is needed for settings icons even when search aliases are disabled.
+  const discoveryApps = [...new Map([...baseCatalog.apps, ...enabledBaseApps].map((app) => [app.id, app])).values()]
+  shortcutIndex = await enrichMacApplicationIndex(await enrichWindowsShortcutIndex(scannedApplications, discoveryApps), discoveryApps)
   const indexed = buildIndexedApplicationCatalog(shortcutIndex.entries, snapshotVersion, enabledBaseApps, applicationBindings())
   const iconHydrationGeneration = ++applicationIconHydrationGeneration
   publishIndexedCatalog(indexed.payload, indexed.targets, indexed.templateTargets)
