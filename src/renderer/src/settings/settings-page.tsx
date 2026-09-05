@@ -155,6 +155,8 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
   const [settings, setSettings] = useState<LauncherSettingsSnapshot>(DEFAULT_SETTINGS)
   const [commands, setCommands] = useState<UserCommand[]>([])
   const [baseCatalog, setBaseCatalog] = useState<BaseCatalogSnapshot>({ catalogVersion: 'empty', apps: [], disabledAppIds: [] })
+  const [baseCatalogStatus, setBaseCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [baseCatalogRetry, setBaseCatalogRetry] = useState(0)
   const [packagePreview, setPackagePreview] = useState<CommandPackagePreview | null>(null)
   const [packageDecisions, setPackageDecisions] = useState<Record<string, CommandImportDecision>>({})
   const [relocatingAppRef, setRelocatingAppRef] = useState<string | null>(null)
@@ -191,23 +193,28 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
   }, [api])
 
   useEffect(() => {
-    if (section !== 'templates' || !api?.getBaseCatalog) return
-    const getBaseCatalog = api.getBaseCatalog
+    if (section !== 'templates') return
+    const getBaseCatalog = api?.getBaseCatalog
     let disposed = false
     let request = 0
     const reload = async (): Promise<void> => {
       const currentRequest = ++request
+      setBaseCatalogStatus('loading')
       try {
+        if (!getBaseCatalog) throw new Error('CATALOG_UNAVAILABLE')
         const snapshot = await getBaseCatalog()
-        if (!disposed && currentRequest === request) setBaseCatalog(snapshot)
+        if (!disposed && currentRequest === request) {
+          setBaseCatalog(snapshot)
+          setBaseCatalogStatus('ready')
+        }
       } catch {
-        // An icon refresh failure must not prevent editing other settings.
+        if (!disposed && currentRequest === request) setBaseCatalogStatus('error')
       }
     }
-    const unsubscribe = api.onCatalogChanged?.(() => { void reload() })
+    const unsubscribe = api?.onCatalogChanged?.(() => { void reload() })
     void reload()
     return () => { disposed = true; unsubscribe?.() }
-  }, [api, section])
+  }, [api, section, baseCatalogRetry])
 
   useEffect(() => { setTourOpen(tutorialOpen) }, [tutorialOpen])
 
@@ -524,7 +531,7 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
           </div>
           <div className="settings-sync-status" aria-live="polite">
             <span className="settings-status-dot" />
-            <span>{saving ? '保存中' : refreshingApplications ? '索引刷新中' : '已同步'}</span>
+            <span>{saving ? '保存中' : refreshingApplications ? '索引刷新中' : section === 'templates' && baseCatalogStatus !== 'ready' ? baseCatalogStatus === 'error' ? '加载失败' : '加载中' : '已同步'}</span>
           </div>
         </header>
         {error && <p className="settings-error" role="alert">{error}</p>}
@@ -919,6 +926,7 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
                   <p className="settings-template-kicker">BUILT-IN CATALOG · {baseCatalog.catalogVersion}</p>
                   <h2 className="settings-card-title">已安装软件的快捷别名</h2>
                   <p className="settings-card-description">模板只会增强已发现的应用匹配，不会向搜索列表添加未安装的软件。</p>
+                  <p className="settings-card-description">关闭模板仅停用其提供的别名，软件名称和拼音仍可搜索。</p>
                 </div>
                 <div className="settings-template-actions">
                   <span className="settings-template-count">
@@ -936,7 +944,14 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
                   </button>
                 </div>
               </div>
-              {baseCatalog.apps.length === 0 && (
+              {baseCatalogStatus === 'error' && (
+                <div className="settings-error flex flex-col items-start gap-2" role="alert">
+                  <p>软件模板加载失败。{baseCatalog.apps.length > 0 ? '已保留上次加载的结果，请重试。' : '请重试加载。'}</p>
+                  <button className="secondary-button settings-inline-action" onClick={() => setBaseCatalogRetry((value) => value + 1)} type="button">重试加载</button>
+                </div>
+              )}
+              {baseCatalogStatus === 'loading' && baseCatalog.apps.length === 0 && <p className="settings-card-description" role="status">正在加载软件模板…</p>}
+              {baseCatalogStatus === 'ready' && baseCatalog.apps.length === 0 && (
                 <div className="settings-card justify-center py-10 text-center">
                   <div>
                     <h2 className="settings-card-title">暂无内置软件模板</h2>

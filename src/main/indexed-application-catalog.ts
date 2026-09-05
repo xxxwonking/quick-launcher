@@ -58,11 +58,6 @@ export function applicationAliases(title: string, baseApps: readonly BaseAppTemp
   const normalizedTitle = title.trim().toLocaleLowerCase()
   const syllables = pinyin(title, { type: 'array', toneType: 'none', nonZh: 'consecutive' })
   const initials = pinyin(title, { type: 'array', toneType: 'none', pattern: 'first', nonZh: 'consecutive' })
-  const knownAliases = normalizedTitle === 'visual studio code'
-    ? ['vscode', 'vsc', 'code']
-    : normalizedTitle === '微信'
-      ? ['wx', 'wechat', 'weixin']
-      : []
   const baseTemplate = baseApps.find((app) => (
     matchesBaseTemplate(title, metadata, app)
   ))
@@ -70,7 +65,6 @@ export function applicationAliases(title: string, baseApps: readonly BaseAppTemp
     normalizedTitle,
     syllables.join(''),
     initials.join(''),
-    ...knownAliases,
     ...(baseTemplate ? [baseTemplate.displayName.toLocaleLowerCase(), ...baseTemplate.defaultAliases] : []),
   ]
   return values.filter((value, index) => value.length > 0 && values.indexOf(value) === index)

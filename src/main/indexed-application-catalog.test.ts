@@ -51,15 +51,28 @@ describe('indexed application catalog', () => {
     expect([...catalog.targets.values()]).toEqual(['C:\\Start\\夸克网盘.lnk'])
   })
 
-  it('preserves display-name casing and adds known product aliases', () => {
+  it('preserves display-name casing and adds enabled template aliases', () => {
     const catalog = buildIndexedApplicationCatalog([
       { displayName: 'Visual Studio Code.lnk', path: 'C:\\Start\\Visual Studio Code.lnk' },
-    ], 1)
+    ], 1, [{ id: 'vscode', displayName: 'Visual Studio Code', defaultAliases: ['vscode', 'vsc', 'code'], platforms: { windows: { executables: ['Code.exe'] } } }])
 
     expect(catalog.payload.items[0]).toMatchObject({
       title: 'Visual Studio Code',
       aliases: expect.arrayContaining(['vscode', 'vsc', 'visual studio code']),
     })
+  })
+
+  it('removes legacy hardcoded aliases when a template is disabled or fails identity matching', () => {
+    const entry = { displayName: 'Visual Studio Code', path: '/Applications/Code.app', metadata: { platform: 'macos' as const, bundleId: 'another.app' } }
+    const template: BaseAppTemplate = { id: 'vscode', displayName: 'Visual Studio Code', defaultAliases: ['vscode', 'vsc', 'code'], platforms: { macos: { bundleIds: ['com.microsoft.VSCode'] } } }
+    for (const templates of [[], [template]]) {
+      const app = buildIndexedApplicationCatalog([entry], 1, templates).payload.items[0]!
+      expect(app.title).toBe('Visual Studio Code')
+      expect(app.aliases).toContain('visual studio code')
+      expect(app.aliases).not.toContain('vscode')
+      expect(app.aliases).not.toContain('vsc')
+      expect(app.aliases).not.toContain('code')
+    }
   })
 
   it('adds aliases from the shared base catalog without exposing platform metadata', () => {

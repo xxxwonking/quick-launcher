@@ -367,6 +367,21 @@ describe('SettingsPage', () => {
     expect(refreshApplications).toHaveBeenCalledOnce()
   })
 
+  it('distinguishes template loading failures from an empty catalog and retries successfully', async () => {
+    const user = userEvent.setup()
+    const getBaseCatalog = vi.fn().mockRejectedValueOnce(new Error('IPC unavailable')).mockResolvedValue({ catalogVersion: 'test', apps: [], disabledAppIds: [] })
+    window.launcher = { getBaseCatalog } as unknown as NonNullable<typeof window.launcher>
+    render(<SettingsPage />)
+    await user.click(screen.getByRole('button', { name: '软件模板' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('软件模板加载失败')
+    expect(screen.queryByText('暂无内置软件模板')).not.toBeInTheDocument()
+    expect(screen.queryByText('已同步')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重试加载' }))
+    expect(await screen.findByText('暂无内置软件模板')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(getBaseCatalog).toHaveBeenCalledTimes(2)
+  })
+
   it('updates template icons after hydration, falls back on decode errors, and unsubscribes on leaving the page', async () => {
     const user = userEvent.setup()
     const app = { id: 'chrome', displayName: 'Google Chrome', defaultAliases: ['chrome'], platforms: { macos: { bundleIds: ['com.google.Chrome'] } } }
