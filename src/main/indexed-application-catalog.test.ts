@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { buildIndexedApplicationCatalog, matchesBaseTemplate } from './indexed-application-catalog'
+import { buildIndexedApplicationCatalog, matchesBaseTemplate, withBaseTemplateIcons } from './indexed-application-catalog'
 import type { BaseAppTemplate } from '../shared/base-catalog'
 
 describe('indexed application catalog', () => {
+  it.each(['macos', 'windows'] as const)('reuses hydrated %s icons for templates even when their aliases are disabled', (platform) => {
+    const apps: BaseAppTemplate[] = [{
+      id: 'chrome', displayName: 'Google Chrome', defaultAliases: ['chrome'],
+      platforms: { macos: { bundleIds: ['com.google.Chrome'] }, windows: { executables: ['chrome.exe'] } },
+    }, { id: 'missing', displayName: 'Missing App', defaultAliases: [], platforms: { macos: { bundleIds: ['test.missing'] } } }]
+    const entries = [{
+      displayName: 'Google Chrome', path: platform === 'macos' ? '/Applications/Chrome.app' : 'C:/Chrome/chrome.exe',
+      metadata: { platform, bundleId: 'com.google.Chrome', executableName: 'chrome.exe' },
+    }]
+    const indexed = buildIndexedApplicationCatalog(entries, 1, [])
+    const iconData = 'data:image/png;base64,Y2hyb21l'
+    const hydrated = { ...indexed.payload, items: indexed.payload.items.map((item) => ({ ...item, iconData })) }
+    const templates = withBaseTemplateIcons(apps, entries, hydrated)
+    expect(templates[0]?.iconData).toBe(iconData)
+    expect(templates[1]).not.toHaveProperty('iconData')
+    expect(JSON.stringify(templates)).not.toContain(entries[0]!.path)
+    expect(withBaseTemplateIcons(apps, [], { snapshotVersion: 2, items: [] })[0]).not.toHaveProperty('iconData')
+  })
+
   it('creates opaque launch actions and keeps shortcut paths in the main process', () => {
     const catalog = buildIndexedApplicationCatalog([
       { displayName: 'Cursor.lnk', path: 'C:\\Users\\me\\Desktop\\Cursor.lnk' },

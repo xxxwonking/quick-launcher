@@ -138,6 +138,18 @@ function isValidSiteSearchTemplate(value: string): boolean {
   }
 }
 
+function TemplateIcon({ name, iconData }: { name: string; iconData: string | undefined }): React.JSX.Element {
+  const [failedSource, setFailedSource] = useState<string | null>(null)
+  const showIcon = Boolean(iconData && iconData !== failedSource)
+  return (
+    <div className={`settings-template-mark${showIcon ? ' settings-template-mark-image' : ''}`}>
+      {showIcon ? (
+        <img src={iconData} alt={`${name} 图标`} width={32} height={32} onError={() => setFailedSource(iconData ?? null)} />
+      ) : <span aria-hidden="true">{name.slice(0, 1)}</span>}
+    </div>
+  )
+}
+
 export function SettingsPage({ themePreference = 'system', onThemeChange = () => undefined, onOpenTutorial = () => undefined, tutorialOpen = false }: SettingsPageProps): React.JSX.Element {
   const [section, setSection] = useState<SettingsSection>('general')
   const [settings, setSettings] = useState<LauncherSettingsSnapshot>(DEFAULT_SETTINGS)
@@ -162,7 +174,7 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
     let disposed = false
     const load = async (): Promise<void> => {
       try {
-        const [loadedSettings, loadedCommands, loadedBaseCatalog] = await Promise.all([api?.getSettings?.(), api?.getCommands?.(), api?.getBaseCatalog?.()])
+        const [loadedSettings, loadedCommands] = await Promise.all([api?.getSettings?.(), api?.getCommands?.()])
         if (disposed) return
         if (loadedSettings) {
           const normalizedSettings = normalizeSettingsSnapshot(loadedSettings)
@@ -170,7 +182,6 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
           if (normalizedSettings.searchEngine.kind === 'custom') setCustomSearchTemplate(normalizedSettings.searchEngine.template)
         }
         if (loadedCommands) setCommands(loadedCommands)
-        if (loadedBaseCatalog) setBaseCatalog(loadedBaseCatalog)
       } catch (loadError) {
         if (!disposed) setError(errorMessage(loadError))
       }
@@ -178,6 +189,25 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
     void load()
     return () => { disposed = true }
   }, [api])
+
+  useEffect(() => {
+    if (section !== 'templates' || !api?.getBaseCatalog) return
+    const getBaseCatalog = api.getBaseCatalog
+    let disposed = false
+    let request = 0
+    const reload = async (): Promise<void> => {
+      const currentRequest = ++request
+      try {
+        const snapshot = await getBaseCatalog()
+        if (!disposed && currentRequest === request) setBaseCatalog(snapshot)
+      } catch {
+        // An icon refresh failure must not prevent editing other settings.
+      }
+    }
+    const unsubscribe = api.onCatalogChanged?.(() => { void reload() })
+    void reload()
+    return () => { disposed = true; unsubscribe?.() }
+  }, [api, section])
 
   useEffect(() => { setTourOpen(tutorialOpen) }, [tutorialOpen])
 
@@ -920,7 +950,7 @@ export function SettingsPage({ themePreference = 'system', onThemeChange = () =>
                   const platforms = [app.platforms.macos ? 'macOS' : '', app.platforms.windows ? 'Windows' : ''].filter(Boolean).join(' · ')
                   return (
                     <article className={`settings-template-card ${enabled ? 'settings-template-enabled' : ''}`} key={app.id}>
-                      <div className="settings-template-mark" aria-hidden="true">{app.displayName.slice(0, 1)}</div>
+                      <TemplateIcon name={app.displayName} iconData={app.iconData} />
                       <div className="min-w-0 flex-1">
                         <div className="settings-template-title-row">
                           <h2 className="settings-card-title">{app.displayName}</h2>

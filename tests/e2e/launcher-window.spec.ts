@@ -102,6 +102,22 @@ test('refreshes the application index from the templates page', async () => {
   await expect(refreshButton).toBeEnabled()
 })
 
+test('renders cached application icons in software templates on macOS', async () => {
+  test.skip(process.platform !== 'darwin')
+  const launcher = await showLauncher()
+  const page = await openSettingsWith(async () => { await launcher.evaluate(() => window.launcher?.openSettings()) })
+  await page.getByRole('button', { name: '软件模板' }).click()
+  const icons = page.locator('.settings-template-mark img')
+  await expect.poll(() => icons.count(), { timeout: 30_000 }).toBeGreaterThan(0)
+  const icon = icons.first()
+  await expect(icon).toBeVisible()
+  await expect.poll(() => icon.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true)
+  const bounds = await icon.boundingBox()
+  expect(bounds?.width).toBe(32)
+  expect(bounds?.height).toBe(32)
+  await page.screenshot({ path: 'test-results/software-template-icons.png' })
+})
+
 test('opens a command package from the file association entry point', async () => {
   const packagePath = join(userDataDirectory, 'team.quickcmd.json')
   await writeFile(packagePath, JSON.stringify({

@@ -33,7 +33,7 @@ import { openExternalSafely, openPathSafely, resolveDevelopmentRendererUrl, shou
 import { createSettingsStore, normalizeFileSearchRoots, type LauncherSettings } from './settings-store'
 import { createShortcutIndex, shortcutExecutableName, type ShortcutIndex } from './shortcut-index'
 import { centerLauncherInWorkArea } from './window-placement'
-import { buildIndexedApplicationCatalog } from './indexed-application-catalog'
+import { buildIndexedApplicationCatalog, withBaseTemplateIcons } from './indexed-application-catalog'
 import { createCoalescedIconLoader, createSuccessfulIconLoader, hydrateApplicationIconsInBackground } from './application-icons'
 import { createPlatformIconLoader } from './application-icon-loader'
 import { findApplicationIconPaths } from './application-icon-path'
@@ -1276,7 +1276,7 @@ function baseCatalogSnapshot(): BaseCatalogSnapshot {
   const disabledBaseAppIds = settings.disabledBaseAppIds ?? []
   return {
     catalogVersion: baseCatalog.catalogVersion,
-    apps: baseCatalog.apps.map((app) => ({
+    apps: withBaseTemplateIcons(baseCatalog.apps, shortcutIndex.entries, indexedCatalog.payload, applicationBindings()).map((app) => ({
       ...app,
       defaultAliases: [...app.defaultAliases],
       platforms: {

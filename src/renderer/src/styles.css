@@ -587,6 +587,18 @@ kbd {
   font-weight: 800;
 }
 
+.settings-template-mark-image {
+  border-color: transparent;
+  background: transparent;
+}
+
+.settings-template-mark img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
 .settings-template-title-row {
   display: flex;
   align-items: center;

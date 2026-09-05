@@ -136,3 +136,20 @@ export function buildIndexedApplicationCatalog(
 
   return { payload: { snapshotVersion, items }, targets, templateTargets }
 }
+
+// Match every template, including disabled aliases, against the same local index.
+// Reuse hydrated icons without reading application files again or exposing paths.
+export function withBaseTemplateIcons(
+  apps: readonly BaseAppTemplate[],
+  entries: readonly ShortcutEntry[],
+  catalog: LauncherCatalogPayload,
+  appBindings: Readonly<Record<string, UserApplicationBinding>> = {},
+): Array<BaseAppTemplate & { iconData?: string }> {
+  const { templateTargets } = buildIndexedApplicationCatalog(entries, catalog.snapshotVersion, apps, appBindings)
+  const icons = new Map(catalog.items.filter((item) => item.kind === 'application' && item.iconData).map((item) => [item.id, item.iconData]))
+  return apps.map((app) => {
+    const targetId = templateTargets.get(app.id)
+    const iconData = targetId ? icons.get(targetId) : undefined
+    return { ...app, ...(iconData ? { iconData } : {}) }
+  })
+}

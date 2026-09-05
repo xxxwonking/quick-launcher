@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildInfo } from '../../../shared/build-info'
@@ -365,6 +365,37 @@ describe('SettingsPage', () => {
     await user.click(await screen.findByRole('button', { name: '刷新应用索引' }))
 
     expect(refreshApplications).toHaveBeenCalledOnce()
+  })
+
+  it('updates template icons after hydration, falls back on decode errors, and unsubscribes on leaving the page', async () => {
+    const user = userEvent.setup()
+    const app = { id: 'chrome', displayName: 'Google Chrome', defaultAliases: ['chrome'], platforms: { macos: { bundleIds: ['com.google.Chrome'] } } }
+    const snapshot = { catalogVersion: 'test', apps: [app], disabledAppIds: ['chrome'] }
+    const getBaseCatalog = vi.fn().mockResolvedValue(snapshot)
+    let onChanged: (() => void) | undefined
+    const unsubscribe = vi.fn()
+    window.launcher = {
+      getBaseCatalog,
+      onCatalogChanged: vi.fn((listener: () => void) => { onChanged = listener; return unsubscribe }),
+    } as unknown as NonNullable<typeof window.launcher>
+    render(<SettingsPage />)
+    await user.click(screen.getByRole('button', { name: '软件模板' }))
+    await screen.findByText('Google Chrome')
+    expect(screen.queryByRole('img', { name: 'Google Chrome 图标' })).not.toBeInTheDocument()
+    const iconData = 'data:image/png;base64,Y2hyb21l'
+    getBaseCatalog.mockResolvedValue({ ...snapshot, apps: [{ ...app, iconData }] })
+    await act(async () => { onChanged?.() })
+    const icon = await screen.findByRole('img', { name: 'Google Chrome 图标' })
+    expect(icon).toHaveAttribute('src', iconData)
+    expect(screen.getByRole('checkbox', { name: '启用 Google Chrome' })).not.toBeChecked()
+    fireEvent.error(icon)
+    expect(screen.queryByRole('img', { name: 'Google Chrome 图标' })).not.toBeInTheDocument()
+    expect(screen.getByText('G')).toBeInTheDocument()
+    getBaseCatalog.mockResolvedValue({ ...snapshot, apps: [{ ...app, iconData: `${iconData}Mg==` }] })
+    await act(async () => { onChanged?.() })
+    expect(await screen.findByRole('img', { name: 'Google Chrome 图标' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '常规设置' }))
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
   it('persists the autostart preference from the general section', async () => {

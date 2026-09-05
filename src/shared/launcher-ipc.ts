@@ -46,7 +46,7 @@ export type ApplicationRelocationResult = {
 
 export type BaseCatalogSnapshot = {
   catalogVersion: string
-  apps: BaseAppTemplate[]
+  apps: Array<BaseAppTemplate & { iconData?: string }>
   disabledAppIds: string[]
 }
 
