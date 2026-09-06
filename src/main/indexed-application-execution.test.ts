@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { app } from 'electron'
 import type { BaseCatalogSnapshot } from '../shared/launcher-ipc'
 import type { LauncherCatalogPayload } from '../shared/launcher-item'
 
@@ -249,10 +250,12 @@ async function invoke(channel: string, value?: unknown): Promise<unknown> {
 
 describe('indexed application execution', () => {
   const originalE2eMode = process.env.QUICK_LAUNCHER_E2E
+  let beforeQuit: ((event: { preventDefault: () => void }) => void) | undefined
 
   beforeAll(async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     await import('./index')
+    beforeQuit = vi.mocked(app.on).mock.calls.find(([event]) => String(event) === 'before-quit')?.[1]
     if (!electronState.readyCallback) throw new Error('Electron bootstrap was not registered')
     await electronState.readyCallback()
     await invoke('launcher:refresh-applications')
@@ -596,5 +599,30 @@ describe('indexed application execution', () => {
 
     expect(settingsWindow.hide).toHaveBeenCalledOnce()
     expect(searchWindow.show).toHaveBeenCalled()
+  })
+
+  it('does not wait indefinitely for a native icon when quitting', async () => {
+    const loadIcon = vi.mocked(app.getFileIcon)
+    const originalLoader = loadIcon.getMockImplementation()
+    const releaseIcons: Array<(icon: Awaited<ReturnType<typeof app.getFileIcon>>) => void> = []
+    loadIcon.mockImplementation(() => new Promise((resolve) => { releaseIcons.push(resolve) }))
+    await invoke('launcher:refresh-applications')
+    if (!beforeQuit) throw new Error('Quit handler was not registered')
+
+    vi.useFakeTimers()
+    try {
+      const preventDefault = vi.fn()
+      beforeQuit({ preventDefault })
+      expect(preventDefault).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(app.quit).toHaveBeenCalledOnce()
+      const requestsAtQuit = loadIcon.mock.calls.length
+      await invoke('launcher:refresh-applications')
+      expect(loadIcon).toHaveBeenCalledTimes(requestsAtQuit)
+    } finally {
+      if (originalLoader) loadIcon.mockImplementation(originalLoader)
+      for (const releaseIcon of releaseIcons) releaseIcon({ toDataURL: () => '' } as Awaited<ReturnType<typeof app.getFileIcon>>)
+      vi.useRealTimers()
+    }
   })
 })

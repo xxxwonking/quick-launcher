@@ -100,6 +100,7 @@ let applicationRefreshPromise: Promise<{ count: number }> | null = null
 let applicationRefreshQueued = false
 let applicationIconHydrationGeneration = 0
 const pendingApplicationIconHydrations = new Set<Promise<void>>()
+let applicationIconAbortController: AbortController | undefined
 let quitCleanupStarted = false
 let applicationIndexCache: ReturnType<typeof createApplicationIndexCache> | null = null
 let fileIndexRefreshPromise: Promise<void> | null = null
@@ -786,15 +787,19 @@ async function publishApplicationRefresh(
   snapshotVersion: number,
   persistCache: boolean,
 ): Promise<{ count: number }> {
+  if (quitCleanupStarted) return { count: indexedCatalog.payload.items.length }
   const enabledBaseApps = enabledApplicationTemplates()
   // Identity metadata is needed for settings icons even when search aliases are disabled.
   const discoveryApps = [...new Map([...baseCatalog.apps, ...enabledBaseApps].map((app) => [app.id, app])).values()]
   const enrichmentStarted = Date.now()
   if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application metadata: start (${scannedApplications.entries.length} entries)`)
   shortcutIndex = await enrichMacApplicationIndex(await enrichWindowsShortcutIndex(scannedApplications, discoveryApps), discoveryApps)
+  if (quitCleanupStarted) return { count: indexedCatalog.payload.items.length }
   if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application metadata: finished in ${Date.now() - enrichmentStarted}ms`)
   const indexed = buildIndexedApplicationCatalog(shortcutIndex.entries, snapshotVersion, enabledBaseApps, applicationBindings())
   const iconHydrationGeneration = ++applicationIconHydrationGeneration
+  applicationIconAbortController?.abort()
+  applicationIconAbortController = new AbortController()
   publishIndexedCatalog(indexed.payload, indexed.targets, indexed.templateTargets)
   const iconLoader = applicationIconLoader()
   if (iconLoader) {
@@ -810,6 +815,7 @@ async function publishApplicationRefresh(
         publishIndexedCatalog(hydratedCatalog, indexed.targets, indexed.templateTargets)
       },
       (error) => logDiagnostic('application icon hydration failed', error),
+      applicationIconAbortController.signal,
     )
     pendingApplicationIconHydrations.add(hydration)
     void hydration.then(
@@ -830,11 +836,21 @@ async function publishApplicationRefresh(
 
 async function waitForApplicationIconHydrations(): Promise<void> {
   applicationIconHydrationGeneration += 1
+  applicationIconAbortController?.abort()
   if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`quit: waiting for ${pendingApplicationIconHydrations.size} icon batches`)
-  while (pendingApplicationIconHydrations.size > 0) {
-    await Promise.allSettled([...pendingApplicationIconHydrations])
+  // Native icon extraction cannot be cancelled. Stop queued work and give only
+  // the in-flight requests a bounded grace period; icons must never prevent quit.
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      Promise.allSettled([...pendingApplicationIconHydrations]),
+      new Promise<void>((resolve) => { deadline = setTimeout(resolve, 2_000) }),
+    ])
+  } finally {
+    clearTimeout(deadline)
   }
-  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic('quit: icon batches settled')
+  if (pendingApplicationIconHydrations.size > 0) logDiagnostic('quit: native icon cleanup deadline exceeded')
+  else if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic('quit: icon batches settled')
 }
 
 function commandCatalogItems(): LauncherItem[] {
@@ -1139,6 +1155,7 @@ async function commitCommandPackage(previewId: unknown, decisionsValue: unknown)
 }
 
 function refreshApplications(): Promise<{ count: number }> {
+  if (quitCleanupStarted) return Promise.resolve({ count: indexedCatalog.payload.items.length })
   if (applicationRefreshPromise) {
     applicationRefreshQueued = true
     const runningRefresh = applicationRefreshPromise

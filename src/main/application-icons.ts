@@ -71,13 +71,14 @@ export async function withApplicationIcons(
   targets: ReadonlyMap<string, string>,
   getFileIcon?: FileIconLoader,
   concurrency = 6,
+  signal?: AbortSignal,
 ): Promise<LauncherCatalogPayload> {
   if (!getFileIcon) return catalog
 
   const items = [...catalog.items]
   let nextIndex = 0
   const hydrateNext = async (): Promise<void> => {
-    while (nextIndex < items.length) {
+    while (!signal?.aborted && nextIndex < items.length) {
       const index = nextIndex
       nextIndex += 1
       const item = items[index]
@@ -87,6 +88,7 @@ export async function withApplicationIcons(
 
       try {
         const nativeIcon = await getFileIcon(targetPath, { size: 'normal' })
+        if (signal?.aborted) return
         const iconData = nativeIcon.toDataURL()
         if (isPublishableIconData(iconData)) items[index] = { ...item, iconData }
       } catch {
@@ -107,6 +109,9 @@ export function hydrateApplicationIconsInBackground(
   getFileIcon: FileIconLoader,
   onHydrated: (catalog: LauncherCatalogPayload) => void,
   onError: (error: unknown) => void = () => undefined,
+  signal?: AbortSignal,
 ): Promise<void> {
-  return withApplicationIcons(catalog, targets, getFileIcon).then(onHydrated, onError)
+  return withApplicationIcons(catalog, targets, getFileIcon, 6, signal).then((hydrated) => {
+    if (!signal?.aborted) onHydrated(hydrated)
+  }, onError)
 }

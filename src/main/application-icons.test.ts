@@ -167,4 +167,41 @@ describe('application icons', () => {
     expect(onHydrated).toHaveBeenCalledOnce()
     expect(onHydrated.mock.calls[0]?.[0].items[0]?.iconData).toBe('data:image/png;base64,native-icon')
   })
+
+  it('stops scheduling native requests when an icon batch is cancelled', async () => {
+    const controller = new AbortController()
+    const catalog: LauncherCatalogPayload = {
+      snapshotVersion: 1,
+      items: Array.from({ length: 12 }, (_, index) => ({
+        id: `app:${index}`, title: `App ${index}`, subtitle: '', aliases: [],
+        icon: 'code' as const, kind: 'application' as const,
+        action: { type: 'launch-indexed' as const, targetId: `app:${index}` },
+      })),
+    }
+    const targets = new Map(catalog.items.map((item) => [item.id, item.id]))
+    const getFileIcon = vi.fn(async () => {
+      controller.abort()
+      return { toDataURL: () => 'data:image/png;base64,icon' }
+    })
+
+    const result = await withApplicationIcons(catalog, targets, getFileIcon, 1, controller.signal)
+
+    expect(getFileIcon).toHaveBeenCalledOnce()
+    expect(result.items.every((item) => !item.iconData)).toBe(true)
+  })
+
+  it('does not publish a cancelled background batch', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const getFileIcon = vi.fn()
+    const onHydrated = vi.fn()
+
+    await hydrateApplicationIconsInBackground(
+      { snapshotVersion: 1, items: [] }, new Map(), getFileIcon, onHydrated,
+      undefined, controller.signal,
+    )
+
+    expect(getFileIcon).not.toHaveBeenCalled()
+    expect(onHydrated).not.toHaveBeenCalled()
+  })
 })
