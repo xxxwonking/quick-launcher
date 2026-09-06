@@ -789,17 +789,23 @@ async function publishApplicationRefresh(
   const enabledBaseApps = enabledApplicationTemplates()
   // Identity metadata is needed for settings icons even when search aliases are disabled.
   const discoveryApps = [...new Map([...baseCatalog.apps, ...enabledBaseApps].map((app) => [app.id, app])).values()]
+  const enrichmentStarted = Date.now()
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application metadata: start (${scannedApplications.entries.length} entries)`)
   shortcutIndex = await enrichMacApplicationIndex(await enrichWindowsShortcutIndex(scannedApplications, discoveryApps), discoveryApps)
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application metadata: finished in ${Date.now() - enrichmentStarted}ms`)
   const indexed = buildIndexedApplicationCatalog(shortcutIndex.entries, snapshotVersion, enabledBaseApps, applicationBindings())
   const iconHydrationGeneration = ++applicationIconHydrationGeneration
   publishIndexedCatalog(indexed.payload, indexed.targets, indexed.templateTargets)
   const iconLoader = applicationIconLoader()
   if (iconLoader) {
+    const hydrationStarted = Date.now()
+    if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application icons: start (generation ${iconHydrationGeneration}, ${indexed.payload.items.length} items)`)
     const hydration = hydrateApplicationIconsInBackground(
       indexed.payload,
       indexed.targets,
       iconLoader,
       (hydratedCatalog) => {
+        if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application icons: finished (generation ${iconHydrationGeneration}) in ${Date.now() - hydrationStarted}ms`)
         if (iconHydrationGeneration !== applicationIconHydrationGeneration) return
         publishIndexedCatalog(hydratedCatalog, indexed.targets, indexed.templateTargets)
       },
@@ -824,9 +830,11 @@ async function publishApplicationRefresh(
 
 async function waitForApplicationIconHydrations(): Promise<void> {
   applicationIconHydrationGeneration += 1
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`quit: waiting for ${pendingApplicationIconHydrations.size} icon batches`)
   while (pendingApplicationIconHydrations.size > 0) {
     await Promise.allSettled([...pendingApplicationIconHydrations])
   }
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic('quit: icon batches settled')
 }
 
 function commandCatalogItems(): LauncherItem[] {
@@ -866,9 +874,15 @@ function publishIndexedCatalog(
 }
 
 async function performApplicationRefresh(): Promise<{ count: number }> {
+  const refreshStarted = Date.now()
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic('application refresh: start')
   await refreshApplicationBindingStatus()
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic('application discovery: start')
   const scannedApplications = await scanPlatformApplications(process.platform, app.getPath('desktop'))
-  return publishApplicationRefresh(scannedApplications, indexedCatalog.payload.snapshotVersion + 1, true)
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application discovery: finished (${scannedApplications.entries.length} entries) in ${Date.now() - refreshStarted}ms`)
+  const result = await publishApplicationRefresh(scannedApplications, indexedCatalog.payload.snapshotVersion + 1, true)
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`application refresh: finished in ${Date.now() - refreshStarted}ms`)
+  return result
 }
 
 function refreshFileSearchIndex(): Promise<void> {
@@ -1496,6 +1510,7 @@ if (!hasSingleInstance) {
   })
   app.on('activate', () => showLauncher())
   app.on('before-quit', (event) => {
+    if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') logDiagnostic(`quit: before-quit (cleanup started: ${quitCleanupStarted})`)
     if (quitCleanupStarted) return
     event.preventDefault()
     quitCleanupStarted = true
@@ -1511,4 +1526,8 @@ if (!hasSingleInstance) {
     void waitForApplicationIconHydrations().then(() => app.quit())
   })
   app.on('window-all-closed', () => undefined)
+  if (process.env.QUICK_LAUNCHER_DIAGNOSTICS === '1') {
+    app.on('will-quit', () => logDiagnostic('quit: will-quit'))
+    app.on('quit', () => logDiagnostic('quit: quit event'))
+  }
 }

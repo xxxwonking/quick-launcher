@@ -86,6 +86,17 @@ jobs:
         run: pnpm test
       - name: Run Windows Electron E2E suite
         run: pnpm run test:e2e
+        env:
+          DEBUG: pw:browser
+          QUICK_LAUNCHER_DIAGNOSTICS: '1'
+      - name: Upload Windows E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-launcher-windows-e2e-diagnostics
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Build Windows installer
         run: pnpm run dist:win
       - name: Upload Windows artifact
