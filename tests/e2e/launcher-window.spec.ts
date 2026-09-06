@@ -23,7 +23,8 @@ test.beforeEach(async () => {
       if (url && new URL(url).searchParams.get('window') === 'settings') window.hide()
     }
   })
-  await launcher.evaluate(() => window.launcher?.refreshApplications?.())
+  // Startup already scans in the background. UI tests must not request another
+  // machine-wide scan before they can exercise the otherwise-ready window.
 })
 
 test.afterEach(async () => {
@@ -87,6 +88,9 @@ test('manages built-in application templates from settings', async () => {
 })
 
 test('refreshes the application index from the templates page', async () => {
+  // This integration test scans the real machine, including large Windows SDK
+  // installations on CI. Keep ordinary window interactions on the default budget.
+  test.setTimeout(90_000)
   const launcher = await showLauncher()
   await launcher.getByRole('combobox').fill('setting')
   const settingsPage = await openSettingsWith(() => launcher.getByRole('combobox').press('Enter'))
@@ -98,8 +102,8 @@ test('refreshes the application index from the templates page', async () => {
 
   await refreshButton.click()
 
-  await expect.poll(async () => settingsPage.evaluate(async () => (await window.launcher?.getCatalog?.())?.snapshotVersion ?? 0)).toBeGreaterThan(beforeSnapshotVersion)
-  await expect(refreshButton).toBeEnabled()
+  await expect.poll(async () => settingsPage.evaluate(async () => (await window.launcher?.getCatalog?.())?.snapshotVersion ?? 0), { timeout: 60_000 }).toBeGreaterThan(beforeSnapshotVersion)
+  await expect(refreshButton).toBeEnabled({ timeout: 60_000 })
 })
 
 test('renders cached application icons in software templates on macOS', async () => {
@@ -196,9 +200,6 @@ test('restores an imported command after restarting the desktop process', async 
     env: { ...process.env, QUICK_LAUNCHER_E2E: '1' },
   })
   const restartedLauncher = await launcherWindow()
-  await restartedLauncher.evaluate(async () => {
-    await window.launcher?.refreshApplications?.()
-  })
   await restartedLauncher.getByRole('combobox').fill('restart-docs')
   await expect(restartedLauncher.getByRole('option', { name: /重启验证命令/ })).toBeVisible()
 })
